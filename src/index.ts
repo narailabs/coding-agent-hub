@@ -9,6 +9,7 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createHubServer } from './hub-server.js';
 import { loadConfigFile, getDefaultConfigPath, resolveBackends, parseArgs } from './config.js';
+import type { SessionConfig } from './session-manager.js';
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
@@ -24,7 +25,12 @@ async function main() {
     process.exit(1);
   }
 
-  const server = createHubServer(backends);
+  const sessionConfig: SessionConfig = {
+    ...hubConfig?.session,
+    ...(args.sessionTimeoutMs ? { idleTimeoutMs: args.sessionTimeoutMs } : {}),
+  };
+
+  const server = createHubServer(backends, sessionConfig);
   const transport = new StdioServerTransport();
 
   await server.connect(transport);

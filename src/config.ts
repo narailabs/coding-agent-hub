@@ -98,8 +98,9 @@ export function resolveBackends(
 export function parseArgs(argv: string[]): {
   configPath?: string;
   backends?: string[];
+  sessionTimeoutMs?: number;
 } {
-  const result: { configPath?: string; backends?: string[] } = {};
+  const result: { configPath?: string; backends?: string[]; sessionTimeoutMs?: number } = {};
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -107,6 +108,8 @@ export function parseArgs(argv: string[]): {
       result.configPath = argv[++i];
     } else if (arg === '--backends' && argv[i + 1]) {
       result.backends = argv[++i].split(',').map((s) => s.trim());
+    } else if (arg === '--session-timeout' && argv[i + 1]) {
+      result.sessionTimeoutMs = Number(argv[++i]);
     } else if (arg === '--help' || arg === '-h') {
       printUsage();
       process.exit(0);
@@ -125,6 +128,7 @@ Usage:
 Options:
   --config <path>       Path to config file (default: ~/.coding-agent-hub/config.json)
   --backends <list>     Comma-separated list of backends to enable (e.g., gemini,codex)
+  --session-timeout <ms> Session idle timeout in milliseconds (default: 1800000 = 30 min)
   --help, -h            Show this help message
 
 Examples:
