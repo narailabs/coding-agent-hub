@@ -3,6 +3,7 @@
  */
 
 export { DEFAULT_BACKENDS, getDefaultBackend } from './backends.js';
+export type { SessionConfig, SessionInfo, SessionTurn } from './session-manager.js';
 
 /**
  * Configuration for a backend (coding agent CLI).
@@ -68,4 +69,6 @@ export interface HubConfig {
   backends?: Partial<Record<string, Partial<BackendConfig>>>;
   /** Global default timeout in ms */
   defaultTimeoutMs?: number;
+  /** Session manager configuration */
+  session?: import('./session-manager.js').SessionConfig;
 }
