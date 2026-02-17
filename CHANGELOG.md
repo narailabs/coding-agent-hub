@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- OpenCode backend adapter — multi-provider coding agent with JSON response extraction
+- Copilot CLI backend adapter — GitHub Copilot with ANSI code stripping
+- Cursor CLI backend adapter — NDJSON-aware extraction with `--print`/`--force` flags
+- E2E test infrastructure — vitest e2e config with CLI/auth skip helpers
 - Structured error taxonomy — errors classified as `timeout`, `auth`, `spawn`, `parse`, `exit`, or `unknown` with `retryable` flag
 - Stderr forwarding — stderr output captured and surfaced in success metadata as warnings
 - Config validation — `--session-timeout` validated at parse time; custom backends checked for required fields
