@@ -286,6 +286,77 @@ describe('HubSessionManager', () => {
     });
   });
 
+  describe('transactional turns', () => {
+    it('stageUserTurn returns prompt and turnIndex', () => {
+      const id = manager.startSession('claude');
+      const staged = manager.stageUserTurn(id, 'Hello');
+
+      expect(staged.prompt).toBe('Hello');
+      expect(staged.turnIndex).toBe(0);
+    });
+
+    it('staged turn is not counted in turnCount', () => {
+      const id = manager.startSession('claude');
+      manager.stageUserTurn(id, 'Hello');
+
+      const info = manager.getSession(id)!;
+      expect(info.turnCount).toBe(0); // pending turns excluded
+    });
+
+    it('commitTurn adds both user and assistant turns', () => {
+      const id = manager.startSession('claude');
+      const staged = manager.stageUserTurn(id, 'Hello');
+      manager.commitTurn(id, staged.turnIndex, 'Hi there');
+
+      const info = manager.getSession(id)!;
+      expect(info.turnCount).toBe(2); // user + assistant
+    });
+
+    it('rollbackTurn removes the staged turn', () => {
+      const id = manager.startSession('claude');
+      const staged = manager.stageUserTurn(id, 'Hello');
+      manager.rollbackTurn(id, staged.turnIndex);
+
+      const info = manager.getSession(id)!;
+      expect(info.turnCount).toBe(0);
+    });
+
+    it('rolled back turn does not appear in subsequent prompts', () => {
+      const id = manager.startSession('claude');
+
+      // First successful round
+      const staged1 = manager.stageUserTurn(id, 'Q1');
+      manager.commitTurn(id, staged1.turnIndex, 'A1');
+
+      // Failed round — should be rolled back
+      const staged2 = manager.stageUserTurn(id, 'Q2-failed');
+      manager.rollbackTurn(id, staged2.turnIndex);
+
+      // Next round — history should not include Q2-failed
+      const staged3 = manager.stageUserTurn(id, 'Q3');
+      expect(staged3.prompt).toContain('[user]: Q1');
+      expect(staged3.prompt).toContain('[assistant]: A1');
+      expect(staged3.prompt).not.toContain('Q2-failed');
+      expect(staged3.prompt).toContain('Q3');
+    });
+
+    it('commitTurn throws for non-pending turn', () => {
+      const id = manager.startSession('claude');
+      const staged = manager.stageUserTurn(id, 'Hello');
+      manager.commitTurn(id, staged.turnIndex, 'Response');
+
+      expect(() => manager.commitTurn(id, staged.turnIndex, 'Again')).toThrow('No pending turn');
+    });
+
+    it('rollbackTurn throws for non-pending turn', () => {
+      const id = manager.startSession('claude');
+      const staged = manager.stageUserTurn(id, 'Hello');
+      manager.commitTurn(id, staged.turnIndex, 'Response');
+
+      expect(() => manager.rollbackTurn(id, staged.turnIndex)).toThrow('No pending turn');
+    });
+  });
+
   describe('prompt format', () => {
     it('produces the expected XML context block format', () => {
       const id = manager.startSession('claude');

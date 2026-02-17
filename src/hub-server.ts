@@ -75,10 +75,13 @@ export function createHubServer(
       },
       async (args) => {
         let effectivePrompt = args.prompt;
+        let staged: { turnIndex: number } | undefined;
 
         if (args.sessionId) {
           try {
-            effectivePrompt = sessionManager.buildPrompt(args.sessionId, args.prompt);
+            const result = sessionManager.stageUserTurn(args.sessionId, args.prompt);
+            effectivePrompt = result.prompt;
+            staged = { turnIndex: result.turnIndex };
           } catch (err) {
             return {
               content: [{ type: 'text' as const, text: `Session error: ${err instanceof Error ? err.message : String(err)}` }],
@@ -94,8 +97,12 @@ export function createHubServer(
           timeoutMs: args.timeoutMs,
         });
 
-        if (result.success && args.sessionId) {
-          sessionManager.recordResponse(args.sessionId, result.content);
+        if (args.sessionId && staged) {
+          if (result.success) {
+            sessionManager.commitTurn(args.sessionId, staged.turnIndex, result.content);
+          } else {
+            sessionManager.rollbackTurn(args.sessionId, staged.turnIndex);
+          }
         }
 
         if (result.success) {
@@ -206,9 +213,9 @@ export function createHubServer(
         };
       }
 
-      let effectivePrompt: string;
+      let staged: { prompt: string; turnIndex: number };
       try {
-        effectivePrompt = sessionManager.buildPrompt(args.sessionId, args.message);
+        staged = sessionManager.stageUserTurn(args.sessionId, args.message);
       } catch (err) {
         return {
           content: [{ type: 'text' as const, text: `Session error: ${err instanceof Error ? err.message : String(err)}` }],
@@ -217,14 +224,14 @@ export function createHubServer(
       }
 
       const result = await invokeCli(backendConfig, {
-        prompt: effectivePrompt,
+        prompt: staged.prompt,
         model: session.model || undefined,
         workingDir: session.workingDir,
         timeoutMs: args.timeoutMs,
       });
 
       if (result.success) {
-        sessionManager.recordResponse(args.sessionId, result.content);
+        sessionManager.commitTurn(args.sessionId, staged.turnIndex, result.content);
 
         const metadata = [
           `Backend: ${result.backend}`,
@@ -245,6 +252,8 @@ export function createHubServer(
           ],
         };
       }
+
+      sessionManager.rollbackTurn(args.sessionId, staged.turnIndex);
 
       const errorParts = [
         `Hub invocation failed: ${result.error || 'Unknown error'}`,
