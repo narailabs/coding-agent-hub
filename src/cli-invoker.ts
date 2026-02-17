@@ -6,6 +6,7 @@
 
 import { spawn } from 'node:child_process';
 import { StdoutCollector, extractMessageContent } from './message-extractor.js';
+import { logger } from './logger.js';
 import type { BackendConfig, ErrorType, ToolInput, ToolResult } from './types.js';
 
 /** Patterns in stderr that indicate authentication failures. */
@@ -110,6 +111,8 @@ export async function invokeCli(
     const ac = new AbortController();
     const timeout = setTimeout(() => ac.abort(), timeoutMs);
 
+    logger.debug('Spawning CLI', { backend: config.name, command: config.command, args, cwd: input.workingDir });
+
     let child;
     try {
       child = spawn(config.command, args, {
@@ -161,6 +164,8 @@ export async function invokeCli(
 
     child.on('exit', (exitCode) => {
       clearTimeout(timeout);
+      const durationMs = Date.now() - startTime;
+      logger.info('CLI exited', { backend: config.name, exitCode, durationMs });
 
       const stdout = stdoutCollector.toString();
       const extracted = extractMessageContent(stdout, exitCode);
@@ -171,7 +176,7 @@ export async function invokeCli(
           content: extracted.content,
           success: true,
           exitCode,
-          durationMs: Date.now() - startTime,
+          durationMs,
           backend: config.name,
           model,
           stderr,
@@ -190,7 +195,7 @@ export async function invokeCli(
           content: extracted?.content || stdout || stderr,
           success: false,
           exitCode,
-          durationMs: Date.now() - startTime,
+          durationMs,
           backend: config.name,
           model,
           error:

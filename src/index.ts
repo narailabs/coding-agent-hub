@@ -9,6 +9,7 @@
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createHubServer } from './hub-server.js';
 import { loadConfigFile, getDefaultConfigPath, resolveBackends, parseArgs } from './config.js';
+import { logger } from './logger.js';
 import type { SessionConfig } from './session-manager.js';
 
 async function main() {
@@ -29,6 +30,11 @@ async function main() {
     ...hubConfig?.session,
     ...(args.sessionTimeoutMs ? { idleTimeoutMs: args.sessionTimeoutMs } : {}),
   };
+
+  logger.info('Starting coding-agent-hub', {
+    enabledBackends: backends.filter((b) => b.enabled).map((b) => b.name),
+    enabledCount,
+  });
 
   const server = createHubServer(backends, sessionConfig);
   const transport = new StdioServerTransport();
