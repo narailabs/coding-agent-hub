@@ -103,13 +103,16 @@ export function createHubServer(
             `Backend: ${result.backend}`,
             `Model: ${result.model}`,
             `Duration: ${result.durationMs}ms`,
-          ].join(' | ');
+          ];
+          if (result.stderr?.trim()) {
+            metadata.push(`Warnings: ${result.stderr.trim().slice(0, 200)}`);
+          }
 
           return {
             content: [
               {
                 type: 'text' as const,
-                text: `${result.content}\n\n---\n_${metadata}_`,
+                text: `${result.content}\n\n---\n_${metadata.join(' | ')}_`,
               },
             ],
           };
@@ -228,13 +231,16 @@ export function createHubServer(
           `Model: ${result.model}`,
           `Duration: ${result.durationMs}ms`,
           `Session: ${args.sessionId}`,
-        ].join(' | ');
+        ];
+        if (result.stderr?.trim()) {
+          metadata.push(`Warnings: ${result.stderr.trim().slice(0, 200)}`);
+        }
 
         return {
           content: [
             {
               type: 'text' as const,
-              text: `${result.content}\n\n---\n_${metadata}_`,
+              text: `${result.content}\n\n---\n_${metadata.join(' | ')}_`,
             },
           ],
         };
