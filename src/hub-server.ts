@@ -11,6 +11,7 @@ import { invokeCli } from './cli-invoker.js';
 import { getAdapter } from './adapters/index.js';
 import type { BackendConfig } from './types.js';
 import { HubSessionManager, type SessionConfig } from './session-manager.js';
+import type { SessionStore } from './session-store.js';
 
 /**
  * Build a tool description for a backend.
@@ -28,6 +29,7 @@ export function buildToolDescription(config: BackendConfig): string {
 export function createHubServer(
   configs: BackendConfig[],
   sessionConfig?: SessionConfig,
+  sessionStore?: SessionStore,
 ): McpServer {
   const enabledConfigs = configs.filter((c) => c.enabled);
 
@@ -36,7 +38,7 @@ export function createHubServer(
     version: '0.1.0',
   });
 
-  const sessionManager = new HubSessionManager(sessionConfig);
+  const sessionManager = new HubSessionManager(sessionConfig, sessionStore);
 
   // Register per-backend agent tools
   for (const config of enabledConfigs) {
