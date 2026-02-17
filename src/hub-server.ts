@@ -115,11 +115,20 @@ export function createHubServer(
           };
         }
 
+        const errorParts = [
+          `Hub invocation failed: ${result.error || 'Unknown error'}`,
+          '',
+          `Backend: ${result.backend}`,
+          `Exit code: ${result.exitCode}`,
+        ];
+        if (result.errorType) errorParts.push(`Error type: ${result.errorType}`);
+        if (result.retryable) errorParts.push('Retryable: yes');
+
         return {
           content: [
             {
               type: 'text' as const,
-              text: `Hub invocation failed: ${result.error || 'Unknown error'}\n\nBackend: ${result.backend}\nExit code: ${result.exitCode}`,
+              text: errorParts.join('\n'),
             },
           ],
           isError: true,
@@ -231,11 +240,20 @@ export function createHubServer(
         };
       }
 
+      const errorParts = [
+        `Hub invocation failed: ${result.error || 'Unknown error'}`,
+        '',
+        `Backend: ${result.backend}`,
+        `Exit code: ${result.exitCode}`,
+      ];
+      if (result.errorType) errorParts.push(`Error type: ${result.errorType}`);
+      if (result.retryable) errorParts.push('Retryable: yes');
+
       return {
         content: [
           {
             type: 'text' as const,
-            text: `Hub invocation failed: ${result.error || 'Unknown error'}\n\nBackend: ${result.backend}\nExit code: ${result.exitCode}`,
+            text: errorParts.join('\n'),
           },
         ],
         isError: true,

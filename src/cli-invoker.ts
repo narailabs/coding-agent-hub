@@ -6,7 +6,10 @@
 
 import { spawn } from 'node:child_process';
 import { StdoutCollector, extractMessageContent } from './message-extractor.js';
-import type { BackendConfig, ToolInput, ToolResult } from './types.js';
+import type { BackendConfig, ErrorType, ToolInput, ToolResult } from './types.js';
+
+/** Patterns in stderr that indicate authentication failures. */
+const AUTH_ERROR_PATTERNS = [/401/i, /403/i, /unauthorized/i, /api.?key/i, /authentication/i];
 
 /**
  * Environment variables safe to pass to CLI processes.
@@ -125,6 +128,8 @@ export async function invokeCli(
         backend: config.name,
         model,
         error: `Failed to spawn ${config.command}: ${err instanceof Error ? err.message : String(err)}`,
+        errorType: 'spawn',
+        retryable: false,
       });
       return;
     }
@@ -137,6 +142,8 @@ export async function invokeCli(
 
     child.on('error', (err) => {
       clearTimeout(timeout);
+      const isTimeout = err.name === 'AbortError';
+      const stderr = Buffer.concat(stderrChunks).toString('utf-8');
       resolve({
         content: '',
         success: false,
@@ -144,10 +151,11 @@ export async function invokeCli(
         durationMs: Date.now() - startTime,
         backend: config.name,
         model,
-        error:
-          err.name === 'AbortError'
-            ? `Timeout after ${timeoutMs}ms`
-            : err.message,
+        error: isTimeout ? `Timeout after ${timeoutMs}ms` : err.message,
+        errorType: isTimeout ? 'timeout' : 'unknown',
+        timedOut: isTimeout,
+        stderr,
+        retryable: isTimeout,
       });
     });
 
@@ -166,8 +174,18 @@ export async function invokeCli(
           durationMs: Date.now() - startTime,
           backend: config.name,
           model,
+          stderr,
         });
       } else {
+        let errorType: ErrorType;
+        if (exitCode !== 0 && AUTH_ERROR_PATTERNS.some((p) => p.test(stderr))) {
+          errorType = 'auth';
+        } else if (exitCode !== 0) {
+          errorType = 'exit';
+        } else {
+          errorType = 'parse';
+        }
+
         resolve({
           content: extracted?.content || stdout || stderr,
           success: false,
@@ -179,6 +197,9 @@ export async function invokeCli(
             exitCode !== 0
               ? `Process exited with code ${exitCode}`
               : 'Failed to extract response content',
+          errorType,
+          stderr,
+          retryable: errorType === 'exit',
         });
       }
     });

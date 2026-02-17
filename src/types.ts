@@ -42,6 +42,11 @@ export interface ToolInput {
 }
 
 /**
+ * Classifies the type of error that occurred during CLI invocation.
+ */
+export type ErrorType = 'timeout' | 'auth' | 'spawn' | 'parse' | 'exit' | 'unknown';
+
+/**
  * Result from a tool invocation.
  */
 export interface ToolResult {
@@ -59,6 +64,14 @@ export interface ToolResult {
   model: string;
   /** Error message if failed */
   error?: string;
+  /** Classification of the error */
+  errorType?: ErrorType;
+  /** Whether the invocation timed out */
+  timedOut?: boolean;
+  /** Stderr output from the process */
+  stderr?: string;
+  /** Whether the error is retryable */
+  retryable?: boolean;
 }
 
 /**
