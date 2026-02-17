@@ -26,6 +26,13 @@ const ENV_ALLOWLIST = [
   'LANG',
   'LC_ALL',
   'LC_CTYPE',
+  // API keys for multi-provider backends (e.g. OpenCode)
+  'ANTHROPIC_API_KEY',
+  'OPENAI_API_KEY',
+  'GEMINI_API_KEY',
+  'GROQ_API_KEY',
+  'GITHUB_TOKEN',
+  'CURSOR_API_KEY',
 ];
 
 /**

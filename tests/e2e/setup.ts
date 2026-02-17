@@ -13,13 +13,14 @@ export function checkEnvVar(name: string): boolean {
   return !!process.env[name];
 }
 
-export function skipUnless(cli: string, envVar: string): string | null {
+export function skipUnless(cli: string, envVar: string | string[]): string | null {
   const cliOk = checkCliAvailable(cli);
-  const envOk = checkEnvVar(envVar);
+  const envVars = Array.isArray(envVar) ? envVar : [envVar];
+  const envOk = envVars.some(checkEnvVar);
   if (!cliOk || !envOk) {
     const reasons: string[] = [];
     if (!cliOk) reasons.push(`${cli} CLI not found`);
-    if (!envOk) reasons.push(`${envVar} not set`);
+    if (!envOk) reasons.push(`none of ${envVars.join(', ')} set`);
     return reasons.join(', ');
   }
   return null;
