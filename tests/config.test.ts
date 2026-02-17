@@ -1,5 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
-import { resolveBackends, parseArgs, getDefaultConfigPath } from '../src/config.js';
+import { resolveBackends, parseArgs, getDefaultConfigPath, loadConfigFile } from '../src/config.js';
+import { writeFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import type { HubConfig } from '../src/types.js';
 
 describe('getDefaultConfigPath', () => {
@@ -7,6 +10,36 @@ describe('getDefaultConfigPath', () => {
     const path = getDefaultConfigPath();
     expect(path).toContain('.coding-agent-hub');
     expect(path).toContain('config.json');
+  });
+});
+
+describe('loadConfigFile', () => {
+  let tmpDir: string;
+
+  it('loads valid JSON config file', () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'config-test-'));
+    const configPath = join(tmpDir, 'config.json');
+    writeFileSync(configPath, JSON.stringify({ defaultTimeoutMs: 60000 }));
+
+    const config = loadConfigFile(configPath);
+    expect(config).not.toBeNull();
+    expect(config!.defaultTimeoutMs).toBe(60000);
+
+    rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it('returns null for nonexistent file', () => {
+    expect(loadConfigFile('/nonexistent/path/config.json')).toBeNull();
+  });
+
+  it('returns null for invalid JSON', () => {
+    tmpDir = mkdtempSync(join(tmpdir(), 'config-test-'));
+    const configPath = join(tmpDir, 'config.json');
+    writeFileSync(configPath, 'not valid json {{{');
+
+    expect(loadConfigFile(configPath)).toBeNull();
+
+    rmSync(tmpDir, { recursive: true, force: true });
   });
 });
 
@@ -134,6 +167,77 @@ describe('resolveBackends', () => {
 
     mockWarn.mockRestore();
   });
+
+  it('skips null overrides entries', () => {
+    const config: HubConfig = {
+      backends: {
+        claude: null as any,
+      },
+    };
+
+    const backends = resolveBackends(config);
+    const claude = backends.find((b) => b.name === 'claude');
+    expect(claude).toBeDefined();
+    // Should still have original defaults
+    expect(claude?.command).toBe('claude');
+  });
+
+  it('custom backend inherits explicit enabled, authEnvVar, and argBuilder', () => {
+    const config: HubConfig = {
+      backends: {
+        mybackend: {
+          displayName: 'My Backend',
+          command: 'my-cli',
+          defaultModel: 'my-model',
+          enabled: false,
+          authEnvVar: 'MY_API_KEY',
+          argBuilder: 'claude',
+        },
+      },
+    };
+
+    const backends = resolveBackends(config);
+    const myBackend = backends.find((b) => b.name === 'mybackend');
+    expect(myBackend).toBeDefined();
+    expect(myBackend!.enabled).toBe(false);
+    expect(myBackend!.authEnvVar).toBe('MY_API_KEY');
+    expect(myBackend!.argBuilder).toBe('claude');
+  });
+
+  it('custom backend uses hubConfig.defaultTimeoutMs when no per-backend timeout', () => {
+    const config: HubConfig = {
+      defaultTimeoutMs: 45_000,
+      backends: {
+        newbackend: {
+          displayName: 'New',
+          command: 'new-cli',
+          defaultModel: 'new-1',
+        },
+      },
+    };
+
+    const backends = resolveBackends(config);
+    const newBackend = backends.find((b) => b.name === 'newbackend');
+    expect(newBackend!.timeoutMs).toBe(45_000);
+  });
+
+  it('custom backend uses own timeoutMs over global default', () => {
+    const config: HubConfig = {
+      defaultTimeoutMs: 45_000,
+      backends: {
+        newbackend: {
+          displayName: 'New',
+          command: 'new-cli',
+          defaultModel: 'new-1',
+          timeoutMs: 99_000,
+        },
+      },
+    };
+
+    const backends = resolveBackends(config);
+    const newBackend = backends.find((b) => b.name === 'newbackend');
+    expect(newBackend!.timeoutMs).toBe(99_000);
+  });
 });
 
 describe('parseArgs', () => {
@@ -209,5 +313,34 @@ describe('parseArgs', () => {
 
     mockExit.mockRestore();
     mockError.mockRestore();
+  });
+
+  it('handles --help flag', () => {
+    const mockExit = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+    const mockLog = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    expect(() => parseArgs(['--help'])).toThrow('exit');
+    expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('coding-agent-hub'));
+    expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('--config'));
+    expect(mockLog).toHaveBeenCalledWith(expect.stringContaining('--backends'));
+
+    mockExit.mockRestore();
+    mockLog.mockRestore();
+  });
+
+  it('handles -h flag', () => {
+    const mockExit = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+    const mockLog = vi.spyOn(console, 'log').mockImplementation(() => {});
+
+    expect(() => parseArgs(['-h'])).toThrow('exit');
+    expect(mockLog).toHaveBeenCalled();
+
+    mockExit.mockRestore();
+    mockLog.mockRestore();
+  });
+
+  it('ignores flags without values', () => {
+    const result = parseArgs(['--config']);
+    expect(result.configPath).toBeUndefined();
   });
 });
