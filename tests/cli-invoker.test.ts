@@ -62,14 +62,14 @@ describe('buildArgs', () => {
   });
 
   it('builds codex args with exec and --full-auto', () => {
-    const config = makeConfig({ argBuilder: 'codex', defaultModel: 'codex-1' });
+    const config = makeConfig({ argBuilder: 'codex', defaultModel: 'gpt-5.3-codex-spark' });
     const args = buildArgs(config, makeInput());
 
     expect(args[0]).toBe('exec');
     expect(args).toContain('--json');
     expect(args).toContain('--full-auto');
     expect(args).toContain('--model');
-    expect(args).toContain('codex-1');
+    expect(args).toContain('gpt-5.3-codex-spark');
   });
 
   it('includes --cd for codex with workingDir', () => {

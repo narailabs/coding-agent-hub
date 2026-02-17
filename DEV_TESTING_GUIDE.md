@@ -198,7 +198,7 @@ Use the codex-agent tool to answer: "Write a Python function that checks if a nu
 **What to verify:**
 - Tool call succeeds
 - Response contains a Python function
-- Metadata footer shows: `Backend: codex | Model: codex-1 | Duration: XXXms`
+- Metadata footer shows: `Backend: codex | Model: gpt-5.3-codex-spark | Duration: XXXms`
 
 ### 3.3 Test `claude-agent`
 

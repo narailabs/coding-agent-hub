@@ -35,7 +35,7 @@ This gives Claude Code access to `gemini-agent`, `codex-agent`, and `claude-agen
 |---------|------------|---------------|--------------|
 | Claude  | `claude`   | `claude-sonnet-4-5` | `ANTHROPIC_API_KEY` |
 | Gemini  | `gemini`   | `gemini-2.5-pro` | `GEMINI_API_KEY` |
-| Codex   | `codex`    | `codex-1` | `OPENAI_API_KEY` |
+| Codex   | `codex`    | `gpt-5.3-codex-spark` | `OPENAI_API_KEY` |
 
 ## Configuration
 

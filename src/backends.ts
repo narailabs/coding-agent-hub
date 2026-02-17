@@ -35,7 +35,7 @@ export const DEFAULT_BACKENDS: BackendConfig[] = [
     displayName: 'Codex CLI',
     command: 'codex',
     enabled: true,
-    defaultModel: 'codex-1',
+    defaultModel: 'gpt-5.3-codex-spark',
     authEnvVar: 'OPENAI_API_KEY',
     timeoutMs: 120_000,
     argBuilder: 'codex',
