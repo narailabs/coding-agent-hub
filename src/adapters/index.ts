@@ -7,6 +7,7 @@ import { ClaudeAdapter } from './claude-adapter.js';
 import { GeminiAdapter } from './gemini-adapter.js';
 import { CodexAdapter } from './codex-adapter.js';
 import { OpenCodeAdapter } from './opencode-adapter.js';
+import { CopilotAdapter } from './copilot-adapter.js';
 import { GenericAdapter } from './generic-adapter.js';
 
 export type { BackendAdapter } from './types.js';
@@ -16,6 +17,7 @@ const adapters: Record<string, BackendAdapter> = {
   gemini: new GeminiAdapter(),
   codex: new CodexAdapter(),
   opencode: new OpenCodeAdapter(),
+  copilot: new CopilotAdapter(),
   generic: new GenericAdapter(),
 };
 
