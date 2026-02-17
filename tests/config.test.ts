@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { resolveBackends, parseArgs, getDefaultConfigPath } from '../src/config.js';
 import type { HubConfig } from '../src/types.js';
 
@@ -90,7 +90,9 @@ describe('resolveBackends', () => {
     expect(qwen?.argBuilder).toBe('generic');
   });
 
-  it('ignores custom backends missing required fields', () => {
+  it('ignores custom backends missing required fields and warns', () => {
+    const mockWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
     const config: HubConfig = {
       backends: {
         incomplete: {
@@ -103,6 +105,34 @@ describe('resolveBackends', () => {
     const backends = resolveBackends(config);
     const incomplete = backends.find((b) => b.name === 'incomplete');
     expect(incomplete).toBeUndefined();
+    expect(mockWarn).toHaveBeenCalledWith(expect.stringContaining('missing required fields'));
+    expect(mockWarn).toHaveBeenCalledWith(expect.stringContaining('command'));
+    expect(mockWarn).toHaveBeenCalledWith(expect.stringContaining('defaultModel'));
+
+    mockWarn.mockRestore();
+  });
+
+  it('warns about unknown config keys in custom backends', () => {
+    const mockWarn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const config: HubConfig = {
+      backends: {
+        custom: {
+          displayName: 'Custom',
+          command: 'custom-cli',
+          defaultModel: 'custom-1',
+          unknownKey: 'value',
+        } as any,
+      },
+    };
+
+    const backends = resolveBackends(config);
+    const custom = backends.find((b) => b.name === 'custom');
+    expect(custom).toBeDefined();
+    expect(mockWarn).toHaveBeenCalledWith(expect.stringContaining('unknown config keys'));
+    expect(mockWarn).toHaveBeenCalledWith(expect.stringContaining('unknownKey'));
+
+    mockWarn.mockRestore();
   });
 });
 
@@ -130,5 +160,54 @@ describe('parseArgs', () => {
     const result = parseArgs([]);
     expect(result.configPath).toBeUndefined();
     expect(result.backends).toBeUndefined();
+  });
+
+  it('parses valid --session-timeout', () => {
+    const result = parseArgs(['--session-timeout', '60000']);
+    expect(result.sessionTimeoutMs).toBe(60000);
+  });
+
+  it('rejects NaN --session-timeout', () => {
+    const mockExit = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+    const mockError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    expect(() => parseArgs(['--session-timeout', 'abc'])).toThrow('exit');
+    expect(mockError).toHaveBeenCalledWith(expect.stringContaining('Invalid --session-timeout'));
+
+    mockExit.mockRestore();
+    mockError.mockRestore();
+  });
+
+  it('rejects negative --session-timeout', () => {
+    const mockExit = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+    const mockError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    expect(() => parseArgs(['--session-timeout', '-1'])).toThrow('exit');
+    expect(mockError).toHaveBeenCalledWith(expect.stringContaining('Invalid --session-timeout'));
+
+    mockExit.mockRestore();
+    mockError.mockRestore();
+  });
+
+  it('rejects zero --session-timeout', () => {
+    const mockExit = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+    const mockError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    expect(() => parseArgs(['--session-timeout', '0'])).toThrow('exit');
+    expect(mockError).toHaveBeenCalledWith(expect.stringContaining('Invalid --session-timeout'));
+
+    mockExit.mockRestore();
+    mockError.mockRestore();
+  });
+
+  it('rejects too-large --session-timeout', () => {
+    const mockExit = vi.spyOn(process, 'exit').mockImplementation(() => { throw new Error('exit'); });
+    const mockError = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    expect(() => parseArgs(['--session-timeout', '99999999'])).toThrow('exit');
+    expect(mockError).toHaveBeenCalledWith(expect.stringContaining('Invalid --session-timeout'));
+
+    mockExit.mockRestore();
+    mockError.mockRestore();
   });
 });
