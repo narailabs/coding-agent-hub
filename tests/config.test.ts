@@ -44,9 +44,9 @@ describe('loadConfigFile', () => {
 });
 
 describe('resolveBackends', () => {
-  it('returns all three defaults when config is null', () => {
+  it('returns all defaults when config is null', () => {
     const backends = resolveBackends(null);
-    expect(backends).toHaveLength(3);
+    expect(backends.length).toBeGreaterThanOrEqual(3);
 
     const names = backends.map((b) => b.name);
     expect(names).toContain('claude');

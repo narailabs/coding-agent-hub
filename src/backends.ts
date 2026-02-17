@@ -40,6 +40,16 @@ export const DEFAULT_BACKENDS: BackendConfig[] = [
     timeoutMs: 120_000,
     argBuilder: 'codex',
   },
+  {
+    name: 'opencode',
+    displayName: 'OpenCode',
+    command: 'opencode',
+    enabled: true,
+    defaultModel: 'claude-sonnet-4-5',
+    authEnvVar: 'ANTHROPIC_API_KEY',
+    timeoutMs: 120_000,
+    argBuilder: 'opencode',
+  },
 ];
 
 /**
