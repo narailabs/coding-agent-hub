@@ -60,6 +60,7 @@ export function buildArgs(config: BackendConfig, input: ToolInput): string[] {
         '--model',
         model,
         '--full-auto',
+        '--skip-git-repo-check',
         ...(input.workingDir ? ['--cd', input.workingDir] : []),
       ];
 

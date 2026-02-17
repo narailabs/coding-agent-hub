@@ -68,6 +68,7 @@ describe('buildArgs', () => {
     expect(args[0]).toBe('exec');
     expect(args).toContain('--json');
     expect(args).toContain('--full-auto');
+    expect(args).toContain('--skip-git-repo-check');
     expect(args).toContain('--model');
     expect(args).toContain('gpt-5.3-codex-spark');
   });
