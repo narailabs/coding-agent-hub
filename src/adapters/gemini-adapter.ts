@@ -7,12 +7,23 @@ import type { BackendConfig, ToolInput } from '../types.js';
 import type { BackendAdapter } from './types.js';
 
 export class GeminiAdapter implements BackendAdapter {
-  promptDelivery = 'arg' as const;
+  promptDelivery = 'stdin' as const;
 
   buildArgs(input: ToolInput, model: string): string[] {
     return [
       '-p',
       input.prompt,
+      '--output-format',
+      'json',
+      '--yolo',
+      '-m',
+      model,
+      ...(input.workingDir ? ['--include-directories', input.workingDir] : []),
+    ];
+  }
+
+  buildArgsWithoutPrompt(input: ToolInput, model: string): string[] {
+    return [
       '--output-format',
       'json',
       '--yolo',
