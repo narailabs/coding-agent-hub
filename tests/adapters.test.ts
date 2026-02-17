@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { ClaudeAdapter } from '../src/adapters/claude-adapter.js';
 import { GeminiAdapter } from '../src/adapters/gemini-adapter.js';
 import { CodexAdapter } from '../src/adapters/codex-adapter.js';
+import { OpenCodeAdapter } from '../src/adapters/opencode-adapter.js';
 import { GenericAdapter } from '../src/adapters/generic-adapter.js';
 import { getAdapter } from '../src/adapters/index.js';
 import type { BackendConfig, ToolInput } from '../src/types.js';
@@ -333,6 +334,121 @@ describe('CodexAdapter', () => {
   });
 });
 
+// ─── OpenCode Adapter ────────────────────────────────────────────
+
+describe('OpenCodeAdapter', () => {
+  const adapter = new OpenCodeAdapter();
+
+  describe('extractResponse', () => {
+    it('extracts JSON response field', () => {
+      const json = JSON.stringify({ response: 'Hello from OpenCode' });
+      const result = adapter.extractResponse(json, 0);
+      expect(result!.content).toBe('Hello from OpenCode');
+      expect(result!.metadata?.jsonFormat).toBe('opencode');
+    });
+
+    it('extracts JSON content field', () => {
+      const json = JSON.stringify({ content: 'Content field' });
+      const result = adapter.extractResponse(json, 0);
+      expect(result!.content).toBe('Content field');
+      expect(result!.metadata?.jsonFormat).toBe('opencode');
+    });
+
+    it('prefers response over content', () => {
+      const json = JSON.stringify({ response: 'from-response', content: 'from-content' });
+      const result = adapter.extractResponse(json, 0);
+      expect(result!.content).toBe('from-response');
+    });
+
+    it('falls back to plain text for non-JSON', () => {
+      const result = adapter.extractResponse('Plain text output', 0);
+      expect(result!.content).toBe('Plain text output');
+      expect(result!.metadata?.jsonFormat).toBe('plaintext');
+    });
+
+    it('returns null for empty output', () => {
+      expect(adapter.extractResponse('', 0)).toBeNull();
+    });
+
+    it('returns null for whitespace-only output', () => {
+      expect(adapter.extractResponse('   \n\t  ', 0)).toBeNull();
+    });
+
+    it('includes exitCode in metadata', () => {
+      const json = JSON.stringify({ response: 'data' });
+      const result = adapter.extractResponse(json, 1);
+      expect(result!.metadata?.exitCode).toBe(1);
+    });
+
+    it('handles JSON embedded in output', () => {
+      const stdout = 'prefix {"response": "extracted value"} suffix';
+      const result = adapter.extractResponse(stdout, 0);
+      expect(result!.content).toBe('extracted value');
+    });
+
+    it('falls back on malformed JSON', () => {
+      const result = adapter.extractResponse('{broken json{', 0);
+      expect(result!.content).toBe('{broken json{');
+      expect(result!.metadata?.jsonFormat).toBe('plaintext');
+    });
+
+    it('handles non-string response field by falling back', () => {
+      const json = JSON.stringify({ response: 42 });
+      const result = adapter.extractResponse(json, 0);
+      expect(result!.metadata?.jsonFormat).toBe('plaintext');
+    });
+
+    it('falls back to plain text when JSON has no response/content field', () => {
+      const json = JSON.stringify({ other: 'data' });
+      const result = adapter.extractResponse(json, 0);
+      expect(result!.content).toBe(json);
+      expect(result!.metadata?.jsonFormat).toBe('plaintext');
+    });
+  });
+
+  describe('buildArgs', () => {
+    it('builds correct args with prompt', () => {
+      const args = adapter.buildArgs(makeInput(), 'claude-sonnet-4-5');
+      expect(args).toEqual(['run', '--format', 'json', '--model', 'claude-sonnet-4-5', 'Hello, world']);
+    });
+
+    it('uses provided model', () => {
+      const args = adapter.buildArgs(makeInput(), 'gpt-4o-mini');
+      expect(args).toContain('gpt-4o-mini');
+    });
+  });
+
+  describe('buildArgsWithoutPrompt', () => {
+    it('omits prompt from args', () => {
+      const args = adapter.buildArgsWithoutPrompt!(makeInput(), 'claude-sonnet-4-5');
+      expect(args).toEqual(['run', '--format', 'json', '--model', 'claude-sonnet-4-5']);
+      expect(args).not.toContain('Hello, world');
+    });
+  });
+
+  describe('buildDescription', () => {
+    it('includes display name and command', () => {
+      const desc = adapter.buildDescription(makeConfig({ displayName: 'OpenCode', command: 'opencode' }));
+      expect(desc).toContain('OpenCode');
+      expect(desc).toContain('opencode');
+    });
+
+    it('includes default model', () => {
+      const desc = adapter.buildDescription(makeConfig({ defaultModel: 'claude-sonnet-4-5' }));
+      expect(desc).toContain('claude-sonnet-4-5');
+    });
+
+    it('mentions multi-provider', () => {
+      const desc = adapter.buildDescription(makeConfig());
+      expect(desc).toContain('multi-provider');
+    });
+  });
+
+  it('has arg prompt delivery', () => {
+    expect(adapter.promptDelivery).toBe('arg');
+  });
+});
+
 // ─── Generic Adapter ─────────────────────────────────────────────
 
 describe('GenericAdapter', () => {
@@ -406,6 +522,10 @@ describe('getAdapter', () => {
 
   it('returns GenericAdapter for "generic"', () => {
     expect(getAdapter('generic')).toBeInstanceOf(GenericAdapter);
+  });
+
+  it('returns OpenCodeAdapter for "opencode"', () => {
+    expect(getAdapter('opencode')).toBeInstanceOf(OpenCodeAdapter);
   });
 
   it('returns GenericAdapter for unknown arg builder', () => {

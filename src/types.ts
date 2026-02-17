@@ -24,7 +24,7 @@ export interface BackendConfig {
   /** Timeout in milliseconds */
   timeoutMs: number;
   /** Arg builder strategy */
-  argBuilder: 'claude' | 'gemini' | 'codex' | 'generic';
+  argBuilder: 'claude' | 'gemini' | 'codex' | 'opencode' | 'copilot' | 'cursor' | 'generic';
 }
 
 /**
