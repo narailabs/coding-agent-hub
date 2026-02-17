@@ -14,12 +14,13 @@ npx coding-agent-hub --backends gemini,codex
 
 ## Claude Code Integration
 
-Add to your `.claude/settings.json`:
+Add to your `.mcp.json` in the project root:
 
 ```json
 {
   "mcpServers": {
     "coding-agent-hub": {
+      "type": "stdio",
       "command": "npx",
       "args": ["coding-agent-hub"]
     }

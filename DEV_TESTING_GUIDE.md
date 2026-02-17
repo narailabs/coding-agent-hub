@@ -251,14 +251,24 @@ If you restricted backends with `--backends gemini,codex`, try asking Claude to 
 
 Sessions let you have multi-turn conversations with a backend, where history is preserved across calls.
 
-### 4.1 Start a session
+### 4.1 Start a session with a custom ID
+
+```
+Use the hub-session-start tool with backend "gemini" and sessionId "my-test-session"
+```
+
+**What to verify:**
+- Returns JSON with `sessionId: "my-test-session"`, `backend`, and `model`
+- The `sessionId` matches the one you provided
+
+### 4.1b Start a session with auto-generated ID
 
 ```
 Use the hub-session-start tool to start a session with the "gemini" backend
 ```
 
 **What to verify:**
-- Returns JSON with `sessionId`, `backend`, and `model`
+- Returns JSON with a UUID `sessionId`, `backend`, and `model`
 - Note the `sessionId` — you'll need it for subsequent calls
 
 ### 4.2 Send first message
@@ -308,7 +318,22 @@ Use the hub-session-list tool
 **What to verify:**
 - The stopped session no longer appears
 
-### 4.7 Test invalid session ID
+### 4.7 Test duplicate session ID
+
+```
+Use the hub-session-start tool with backend "gemini" and sessionId "my-test-session"
+```
+
+Then try to start another session with the same ID:
+
+```
+Use the hub-session-start tool with backend "gemini" and sessionId "my-test-session"
+```
+
+**What to verify:**
+- Second call returns an error: `Session ID already exists: my-test-session`
+
+### 4.8 Test invalid session ID
 
 ```
 Use the hub-session-message tool with sessionId "nonexistent-id" and message "hello"
@@ -476,7 +501,7 @@ const server2 = createHubServer(geminiOnly);
 | `claude-agent` | One-shot Claude CLI call | `prompt`, `model?`, `workingDir?`, `timeoutMs?`, `sessionId?` |
 | `gemini-agent` | One-shot Gemini CLI call | `prompt`, `model?`, `workingDir?`, `timeoutMs?`, `sessionId?` |
 | `codex-agent` | One-shot Codex CLI call | `prompt`, `model?`, `workingDir?`, `timeoutMs?`, `sessionId?` |
-| `hub-session-start` | Begin multi-turn session | `backend`, `model?`, `workingDir?` |
+| `hub-session-start` | Begin multi-turn session | `backend`, `model?`, `workingDir?`, `sessionId?` |
 | `hub-session-message` | Send message in session | `sessionId`, `message`, `timeoutMs?` |
 | `hub-session-stop` | End a session | `sessionId` |
 | `hub-session-list` | List active sessions | *(none)* |
