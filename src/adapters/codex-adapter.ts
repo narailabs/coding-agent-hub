@@ -7,12 +7,25 @@ import type { BackendConfig, ToolInput } from '../types.js';
 import type { BackendAdapter } from './types.js';
 
 export class CodexAdapter implements BackendAdapter {
-  promptDelivery = 'arg' as const;
+  promptDelivery = 'stdin' as const;
 
   buildArgs(input: ToolInput, model: string): string[] {
     return [
       'exec',
       input.prompt,
+      '--json',
+      '--model',
+      model,
+      '--full-auto',
+      '--skip-git-repo-check',
+      ...(input.workingDir ? ['--cd', input.workingDir] : []),
+    ];
+  }
+
+  buildArgsWithoutPrompt(input: ToolInput, model: string): string[] {
+    return [
+      'exec',
+      '--stdin',
       '--json',
       '--model',
       model,

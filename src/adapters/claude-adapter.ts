@@ -7,7 +7,7 @@ import type { BackendConfig, ToolInput } from '../types.js';
 import type { BackendAdapter } from './types.js';
 
 export class ClaudeAdapter implements BackendAdapter {
-  promptDelivery = 'arg' as const;
+  promptDelivery = 'stdin' as const;
 
   buildArgs(input: ToolInput, model: string): string[] {
     return [
@@ -17,6 +17,17 @@ export class ClaudeAdapter implements BackendAdapter {
       '--output-format',
       'text',
       input.prompt,
+    ];
+  }
+
+  buildArgsWithoutPrompt(input: ToolInput, model: string): string[] {
+    return [
+      '--print',
+      '--model',
+      model,
+      '--output-format',
+      'text',
+      '-',  // Claude reads from stdin when prompt is '-'
     ];
   }
 

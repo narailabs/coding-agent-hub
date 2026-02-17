@@ -69,8 +69,18 @@ export async function invokeCli(
   const model = input.model || config.defaultModel;
   const timeoutMs = input.timeoutMs || config.timeoutMs;
   const adapter = getAdapter(config.argBuilder);
-  const args = adapter.buildArgs(input, model);
   const env = buildEnv(config);
+
+  // Use stdin delivery when adapter supports it to avoid ARG_MAX limits
+  let args: string[];
+  let stdinData: string | undefined;
+
+  if (adapter.promptDelivery === 'stdin' && adapter.buildArgsWithoutPrompt) {
+    args = adapter.buildArgsWithoutPrompt(input, model);
+    stdinData = input.prompt;
+  } else {
+    args = adapter.buildArgs(input, model);
+  }
 
   return new Promise<ToolResult>((resolve) => {
     const ac = new AbortController();
@@ -174,7 +184,10 @@ export async function invokeCli(
       }
     });
 
-    // End stdin immediately — the prompt is passed as an arg
+    // Write prompt to stdin if using stdin delivery, then close
+    if (stdinData) {
+      child.stdin?.write(stdinData);
+    }
     child.stdin?.end();
   });
 }
