@@ -77,8 +77,12 @@ export class HubSessionManager {
   /**
    * Create a new session and return its ID.
    */
-  startSession(backend: string, opts?: { model?: string; workingDir?: string }): string {
-    const id = randomUUID();
+  startSession(backend: string, opts?: { model?: string; workingDir?: string; sessionId?: string }): string {
+    const id = opts?.sessionId ?? randomUUID();
+
+    if (this.sessions.has(id)) {
+      throw new Error(`Session ID already exists: ${id}`);
+    }
     const now = Date.now();
 
     const session: Session = {

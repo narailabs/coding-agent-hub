@@ -137,6 +137,7 @@ export function createHubServer(
       backend: z.string().describe('Backend to use for this session (e.g., "claude", "gemini", "codex")'),
       model: z.string().optional().describe('Model override for this session'),
       workingDir: z.string().optional().describe('Working directory for CLI invocations in this session'),
+      sessionId: z.string().optional().describe('Optional custom session ID. If not provided, a UUID is generated automatically'),
     },
     async (args) => {
       const backendConfig = enabledConfigs.find((c) => c.name === args.backend);
@@ -148,10 +149,19 @@ export function createHubServer(
         };
       }
 
-      const sessionId = sessionManager.startSession(args.backend, {
-        model: args.model,
-        workingDir: args.workingDir,
-      });
+      let sessionId: string;
+      try {
+        sessionId = sessionManager.startSession(args.backend, {
+          model: args.model,
+          workingDir: args.workingDir,
+          sessionId: args.sessionId,
+        });
+      } catch (err) {
+        return {
+          content: [{ type: 'text' as const, text: err instanceof Error ? err.message : String(err) }],
+          isError: true,
+        };
+      }
 
       return {
         content: [{ type: 'text' as const, text: JSON.stringify({ sessionId, backend: args.backend, model: args.model || backendConfig.defaultModel }) }],
