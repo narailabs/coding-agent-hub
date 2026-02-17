@@ -8,40 +8,17 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { invokeCli } from './cli-invoker.js';
+import { getAdapter } from './adapters/index.js';
 import type { BackendConfig } from './types.js';
 import { HubSessionManager, type SessionConfig } from './session-manager.js';
 
 /**
  * Build a tool description for a backend.
+ * Delegates to the backend's adapter for backend-specific descriptions.
  */
 export function buildToolDescription(config: BackendConfig): string {
-  const parts = [
-    `Invoke ${config.displayName} (${config.command} CLI) to get an AI response.`,
-    `Default model: ${config.defaultModel}.`,
-  ];
-
-  switch (config.name) {
-    case 'claude':
-      parts.push(
-        'Use this to get a response from Anthropic\'s Claude Code agent.',
-      );
-      parts.push('Claude excels at code analysis, architecture, and reasoning.');
-      break;
-    case 'gemini':
-      parts.push(
-        'Use this to get a response from Google\'s Gemini model.',
-      );
-      parts.push('Gemini has access to web search and code analysis tools.');
-      break;
-    case 'codex':
-      parts.push(
-        'Use this to get a response from OpenAI\'s Codex.',
-      );
-      parts.push('Codex specializes in code implementation and review.');
-      break;
-  }
-
-  return parts.join(' ');
+  const adapter = getAdapter(config.argBuilder);
+  return adapter.buildDescription(config);
 }
 
 /**
