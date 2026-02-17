@@ -52,13 +52,27 @@ export function resolveBackends(
         configs.set(name, { ...existing, ...overrides, name });
       } else {
         // Custom backend — needs all required fields
-        if (overrides.command && overrides.displayName && overrides.defaultModel) {
+        const missingFields: string[] = [];
+        if (!overrides.command) missingFields.push('command');
+        if (!overrides.displayName) missingFields.push('displayName');
+        if (!overrides.defaultModel) missingFields.push('defaultModel');
+
+        if (missingFields.length > 0) {
+          console.warn(`[coding-agent-hub] Skipping custom backend "${name}": missing required fields: ${missingFields.join(', ')}`);
+        } else {
+          // Warn about unknown keys
+          const knownKeys = new Set(['name', 'displayName', 'command', 'enabled', 'defaultModel', 'authEnvVar', 'timeoutMs', 'argBuilder']);
+          const unknownKeys = Object.keys(overrides).filter((k) => !knownKeys.has(k));
+          if (unknownKeys.length > 0) {
+            console.warn(`[coding-agent-hub] Backend "${name}": unknown config keys ignored: ${unknownKeys.join(', ')}`);
+          }
+
           configs.set(name, {
             name,
-            displayName: overrides.displayName,
-            command: overrides.command,
+            displayName: overrides.displayName!,
+            command: overrides.command!,
             enabled: overrides.enabled ?? true,
-            defaultModel: overrides.defaultModel,
+            defaultModel: overrides.defaultModel!,
             authEnvVar: overrides.authEnvVar,
             timeoutMs: overrides.timeoutMs ?? hubConfig.defaultTimeoutMs ?? 120_000,
             argBuilder: overrides.argBuilder ?? 'generic',
@@ -109,7 +123,13 @@ export function parseArgs(argv: string[]): {
     } else if (arg === '--backends' && argv[i + 1]) {
       result.backends = argv[++i].split(',').map((s) => s.trim());
     } else if (arg === '--session-timeout' && argv[i + 1]) {
-      result.sessionTimeoutMs = Number(argv[++i]);
+      const raw = argv[++i];
+      const timeout = Number(raw);
+      if (isNaN(timeout) || timeout <= 0 || timeout > 86_400_000) {
+        console.error(`Invalid --session-timeout: must be positive number <= 86400000 (got: ${raw})`);
+        process.exit(1);
+      }
+      result.sessionTimeoutMs = timeout;
     } else if (arg === '--help' || arg === '-h') {
       printUsage();
       process.exit(0);
