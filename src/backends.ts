@@ -60,6 +60,16 @@ export const DEFAULT_BACKENDS: BackendConfig[] = [
     timeoutMs: 120_000,
     argBuilder: 'copilot',
   },
+  {
+    name: 'cursor',
+    displayName: 'Cursor CLI',
+    command: 'cursor-agent',
+    enabled: true,
+    defaultModel: 'claude-sonnet-4-5',
+    authEnvVar: 'CURSOR_API_KEY',
+    timeoutMs: 120_000,
+    argBuilder: 'cursor',
+  },
 ];
 
 /**

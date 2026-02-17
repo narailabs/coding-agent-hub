@@ -4,6 +4,7 @@ import { GeminiAdapter } from '../src/adapters/gemini-adapter.js';
 import { CodexAdapter } from '../src/adapters/codex-adapter.js';
 import { OpenCodeAdapter } from '../src/adapters/opencode-adapter.js';
 import { CopilotAdapter } from '../src/adapters/copilot-adapter.js';
+import { CursorAdapter } from '../src/adapters/cursor-adapter.js';
 import { GenericAdapter } from '../src/adapters/generic-adapter.js';
 import { getAdapter } from '../src/adapters/index.js';
 import type { BackendConfig, ToolInput } from '../src/types.js';
@@ -553,6 +554,132 @@ describe('CopilotAdapter', () => {
   });
 });
 
+// ─── Cursor Adapter ──────────────────────────────────────────────
+
+describe('CursorAdapter', () => {
+  const adapter = new CursorAdapter();
+
+  describe('extractResponse', () => {
+    it('extracts JSON message field', () => {
+      const json = JSON.stringify({ message: 'Hello from Cursor' });
+      const result = adapter.extractResponse(json, 0);
+      expect(result!.content).toBe('Hello from Cursor');
+      expect(result!.metadata?.jsonFormat).toBe('cursor');
+    });
+
+    it('extracts JSON content field', () => {
+      const json = JSON.stringify({ content: 'Content field' });
+      const result = adapter.extractResponse(json, 0);
+      expect(result!.content).toBe('Content field');
+      expect(result!.metadata?.jsonFormat).toBe('cursor');
+    });
+
+    it('extracts JSON response field', () => {
+      const json = JSON.stringify({ response: 'Response field' });
+      const result = adapter.extractResponse(json, 0);
+      expect(result!.content).toBe('Response field');
+      expect(result!.metadata?.jsonFormat).toBe('cursor');
+    });
+
+    it('prefers message over content', () => {
+      const json = JSON.stringify({ message: 'from-message', content: 'from-content' });
+      const result = adapter.extractResponse(json, 0);
+      expect(result!.content).toBe('from-message');
+    });
+
+    it('handles NDJSON by taking last complete object', () => {
+      const ndjson = [
+        JSON.stringify({ type: 'progress', data: 'working...' }),
+        JSON.stringify({ message: 'Final result' }),
+      ].join('\n');
+      const result = adapter.extractResponse(ndjson, 0);
+      expect(result!.content).toBe('Final result');
+      expect(result!.metadata?.jsonFormat).toBe('cursor');
+    });
+
+    it('falls back to plain text for non-JSON', () => {
+      const result = adapter.extractResponse('Plain text from cursor', 0);
+      expect(result!.content).toBe('Plain text from cursor');
+      expect(result!.metadata?.jsonFormat).toBe('plaintext');
+    });
+
+    it('returns null for empty output', () => {
+      expect(adapter.extractResponse('', 0)).toBeNull();
+    });
+
+    it('returns null for whitespace-only output', () => {
+      expect(adapter.extractResponse('   \n\t  ', 0)).toBeNull();
+    });
+
+    it('includes exitCode in metadata', () => {
+      const json = JSON.stringify({ message: 'data' });
+      const result = adapter.extractResponse(json, 1);
+      expect(result!.metadata?.exitCode).toBe(1);
+    });
+
+    it('falls back on malformed JSON', () => {
+      const result = adapter.extractResponse('{broken json{', 0);
+      expect(result!.content).toBe('{broken json{');
+      expect(result!.metadata?.jsonFormat).toBe('plaintext');
+    });
+
+    it('handles non-string message field by falling back', () => {
+      const json = JSON.stringify({ message: 42 });
+      const result = adapter.extractResponse(json, 0);
+      expect(result!.metadata?.jsonFormat).toBe('plaintext');
+    });
+
+    it('falls back to plain text when JSON has no message/content/response field', () => {
+      const json = JSON.stringify({ other: 'data' });
+      const result = adapter.extractResponse(json, 0);
+      expect(result!.content).toBe(json);
+      expect(result!.metadata?.jsonFormat).toBe('plaintext');
+    });
+  });
+
+  describe('buildArgs', () => {
+    it('builds correct args with prompt', () => {
+      const args = adapter.buildArgs(makeInput(), 'claude-sonnet-4-5');
+      expect(args).toEqual(['--print', '--output-format', 'json', '--model', 'claude-sonnet-4-5', '--force', 'Hello, world']);
+    });
+
+    it('uses provided model', () => {
+      const args = adapter.buildArgs(makeInput(), 'gemini-2.5-flash');
+      expect(args).toContain('gemini-2.5-flash');
+    });
+  });
+
+  describe('buildArgsWithoutPrompt', () => {
+    it('omits prompt from args', () => {
+      const args = adapter.buildArgsWithoutPrompt!(makeInput(), 'claude-sonnet-4-5');
+      expect(args).toEqual(['--print', '--output-format', 'json', '--model', 'claude-sonnet-4-5', '--force']);
+      expect(args).not.toContain('Hello, world');
+    });
+  });
+
+  describe('buildDescription', () => {
+    it('includes display name and command', () => {
+      const desc = adapter.buildDescription(makeConfig({ displayName: 'Cursor CLI', command: 'cursor-agent' }));
+      expect(desc).toContain('Cursor CLI');
+      expect(desc).toContain('cursor-agent');
+    });
+
+    it('includes default model', () => {
+      const desc = adapter.buildDescription(makeConfig({ defaultModel: 'claude-sonnet-4-5' }));
+      expect(desc).toContain('claude-sonnet-4-5');
+    });
+
+    it('mentions Cursor', () => {
+      const desc = adapter.buildDescription(makeConfig());
+      expect(desc).toContain('Cursor');
+    });
+  });
+
+  it('has arg prompt delivery', () => {
+    expect(adapter.promptDelivery).toBe('arg');
+  });
+});
+
 // ─── Generic Adapter ─────────────────────────────────────────────
 
 describe('GenericAdapter', () => {
@@ -634,6 +761,10 @@ describe('getAdapter', () => {
 
   it('returns CopilotAdapter for "copilot"', () => {
     expect(getAdapter('copilot')).toBeInstanceOf(CopilotAdapter);
+  });
+
+  it('returns CursorAdapter for "cursor"', () => {
+    expect(getAdapter('cursor')).toBeInstanceOf(CursorAdapter);
   });
 
   it('returns GenericAdapter for unknown arg builder', () => {
