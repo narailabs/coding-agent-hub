@@ -1,5 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
 import { HubSessionManager } from '../src/session-manager.js';
+import { FileSessionStore } from '../src/session-store.js';
 
 describe('HubSessionManager', () => {
   let manager: HubSessionManager;
@@ -397,6 +401,87 @@ describe('HubSessionManager', () => {
       ].join('\n');
 
       expect(prompt).toBe(expected);
+    });
+  });
+
+  describe('with session store', () => {
+    let storeDir: string;
+    let store: FileSessionStore;
+
+    beforeEach(() => {
+      storeDir = mkdtempSync(join(tmpdir(), 'hub-session-mgr-'));
+      store = new FileSessionStore(storeDir);
+    });
+
+    afterEach(() => {
+      rmSync(storeDir, { recursive: true, force: true });
+    });
+
+    it('persists sessions to store on create and commit', () => {
+      const mgr = new HubSessionManager({ idleTimeoutMs: 60_000 }, store);
+      const id = mgr.startSession('claude');
+
+      // Session should be saved
+      expect(store.load(id)).not.toBeNull();
+
+      const staged = mgr.stageUserTurn(id, 'Hello');
+      mgr.commitTurn(id, staged.turnIndex, 'Hi');
+
+      // Updated session should be saved
+      const loaded = store.load(id)!;
+      expect(loaded.turns).toHaveLength(2);
+
+      mgr.destroy();
+    });
+
+    it('deletes session from store on stop', () => {
+      const mgr = new HubSessionManager({ idleTimeoutMs: 60_000 }, store);
+      const id = mgr.startSession('claude');
+      expect(store.load(id)).not.toBeNull();
+
+      mgr.stopSession(id);
+      expect(store.load(id)).toBeNull();
+
+      mgr.destroy();
+    });
+
+    it('loads persisted sessions on construction', () => {
+      // Create and populate a session with the first manager
+      const mgr1 = new HubSessionManager({ idleTimeoutMs: 60_000 }, store);
+      const id = mgr1.startSession('claude', { model: 'claude-opus-4-5' });
+      const staged = mgr1.stageUserTurn(id, 'Hello');
+      mgr1.commitTurn(id, staged.turnIndex, 'Hi');
+      mgr1.destroy();
+
+      // Create a new manager with the same store — should load the session
+      const mgr2 = new HubSessionManager({ idleTimeoutMs: 60_000 }, store);
+      const info = mgr2.getSession(id);
+      expect(info).not.toBeNull();
+      expect(info!.backend).toBe('claude');
+      expect(info!.model).toBe('claude-opus-4-5');
+      expect(info!.turnCount).toBe(2);
+
+      mgr2.destroy();
+    });
+
+    it('does not load expired sessions', () => {
+      // Create a session with the first manager
+      const mgr1 = new HubSessionManager({ idleTimeoutMs: 1000 }, store);
+      const id = mgr1.startSession('claude');
+      mgr1.destroy();
+
+      // Manually set lastActiveAt to the past
+      const data = store.load(id)!;
+      data.lastActiveAt = Date.now() - 5000; // 5 seconds ago, timeout is 1s
+      store.save(id, data);
+
+      // New manager should not load the expired session
+      const mgr2 = new HubSessionManager({ idleTimeoutMs: 1000 }, store);
+      expect(mgr2.getSession(id)).toBeNull();
+      // And the expired session file should be cleaned up
+      expect(store.load(id)).toBeNull();
+
+      mgr2.destroy();
     });
   });
 });

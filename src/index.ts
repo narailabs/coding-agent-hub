@@ -6,12 +6,16 @@
  * Starts a stdio MCP server exposing coding agent CLIs as tools.
  */
 
+import { join } from 'node:path';
+import { homedir } from 'node:os';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { createHubServer } from './hub-server.js';
 import { loadConfigFile, getDefaultConfigPath, resolveBackends, parseArgs } from './config.js';
 import { logger } from './logger.js';
 import { runPreflightChecks } from './preflight.js';
+import { FileSessionStore } from './session-store.js';
 import type { SessionConfig } from './session-manager.js';
+import type { SessionStore } from './session-store.js';
 
 async function main() {
   const args = parseArgs(process.argv.slice(2));
@@ -32,6 +36,14 @@ async function main() {
     ...(args.sessionTimeoutMs ? { idleTimeoutMs: args.sessionTimeoutMs } : {}),
   };
 
+  // Set up optional session persistence
+  let sessionStore: SessionStore | undefined;
+  if (hubConfig?.sessionPersistence) {
+    const sessionsDir = join(homedir(), '.coding-agent-hub', 'sessions');
+    sessionStore = new FileSessionStore(sessionsDir);
+    logger.info('Session persistence enabled', { dir: sessionsDir });
+  }
+
   logger.info('Starting coding-agent-hub', {
     enabledBackends: backends.filter((b) => b.enabled).map((b) => b.name),
     enabledCount,
@@ -39,7 +51,7 @@ async function main() {
 
   runPreflightChecks(backends);
 
-  const server = createHubServer(backends, sessionConfig);
+  const server = createHubServer(backends, sessionConfig, sessionStore);
   const transport = new StdioServerTransport();
 
   await server.connect(transport);

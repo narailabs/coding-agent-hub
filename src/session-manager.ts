@@ -7,6 +7,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { logger } from './logger.js';
+import type { SessionStore, SerializedSession } from './session-store.js';
 
 /**
  * Configuration for the session manager.
@@ -76,13 +77,56 @@ const DEFAULT_MAX_CONTEXT_CHARS = 100_000;
 export class HubSessionManager {
   private sessions = new Map<string, Session>();
   private config: Required<SessionConfig>;
+  private store?: SessionStore;
 
-  constructor(config?: SessionConfig) {
+  constructor(config?: SessionConfig, store?: SessionStore) {
     this.config = {
       idleTimeoutMs: config?.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS,
       maxContextTurns: config?.maxContextTurns ?? DEFAULT_MAX_CONTEXT_TURNS,
       maxContextChars: config?.maxContextChars ?? DEFAULT_MAX_CONTEXT_CHARS,
     };
+    this.store = store;
+
+    // Load persisted sessions
+    if (store) {
+      this.loadPersistedSessions(store);
+    }
+  }
+
+  private loadPersistedSessions(store: SessionStore): void {
+    const ids = store.listIds();
+    const now = Date.now();
+    let loaded = 0;
+
+    for (const id of ids) {
+      const data = store.load(id);
+      if (!data) continue;
+
+      // Skip expired sessions
+      if (now - data.lastActiveAt > this.config.idleTimeoutMs) {
+        store.delete(id);
+        continue;
+      }
+
+      const session: Session = {
+        id: data.id,
+        backend: data.backend,
+        model: data.model,
+        workingDir: data.workingDir,
+        turns: data.turns,
+        createdAt: data.createdAt,
+        lastActiveAt: data.lastActiveAt,
+        idleTimer: null,
+      };
+
+      this.sessions.set(id, session);
+      this.resetIdleTimer(session);
+      loaded++;
+    }
+
+    if (loaded > 0) {
+      logger.info('Loaded persisted sessions', { count: loaded });
+    }
   }
 
   /**
@@ -109,6 +153,7 @@ export class HubSessionManager {
 
     this.sessions.set(id, session);
     this.resetIdleTimer(session);
+    this.persistSession(session);
 
     logger.info('Session created', { sessionId: id, backend });
 
@@ -212,6 +257,7 @@ export class HubSessionManager {
 
     session.lastActiveAt = Date.now();
     this.resetIdleTimer(session);
+    this.persistSession(session);
 
     logger.debug('Turn committed', { sessionId, turnIndex, turnCount: session.turns.length });
   }
@@ -269,6 +315,7 @@ export class HubSessionManager {
       clearTimeout(session.idleTimer);
     }
     this.sessions.delete(sessionId);
+    this.store?.delete(sessionId);
 
     logger.info('Session stopped', { sessionId });
     return true;
@@ -301,6 +348,21 @@ export class HubSessionManager {
     this.sessions.clear();
   }
 
+  private persistSession(session: Session): void {
+    if (!this.store) return;
+
+    const data: SerializedSession = {
+      id: session.id,
+      backend: session.backend,
+      model: session.model,
+      workingDir: session.workingDir,
+      turns: session.turns.filter((t) => !t.pending),
+      createdAt: session.createdAt,
+      lastActiveAt: session.lastActiveAt,
+    };
+    this.store.save(session.id, data);
+  }
+
   private toSessionInfo(session: Session): SessionInfo {
     return {
       sessionId: session.id,
@@ -320,6 +382,7 @@ export class HubSessionManager {
     session.idleTimer = setTimeout(() => {
       logger.info('Session expired (idle)', { sessionId: session.id });
       this.sessions.delete(session.id);
+      this.store?.delete(session.id);
     }, this.config.idleTimeoutMs);
   }
 

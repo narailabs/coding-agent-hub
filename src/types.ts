@@ -84,4 +84,6 @@ export interface HubConfig {
   defaultTimeoutMs?: number;
   /** Session manager configuration */
   session?: import('./session-manager.js').SessionConfig;
+  /** Enable file-backed session persistence (default: false) */
+  sessionPersistence?: boolean;
 }
