@@ -325,29 +325,75 @@ export class HubSessionManager {
 
   private trimHistory(session: Session): void {
     const beforeCount = session.turns.length;
+    const committed = session.turns.filter((t) => !t.pending);
+    const maxTurns = this.config.maxContextTurns;
 
-    // Only trim committed turns (never remove pending turns)
-    const committedCount = () => session.turns.filter((t) => !t.pending).length;
-
-    // Trim by turn count
-    while (committedCount() > this.config.maxContextTurns) {
-      const idx = session.turns.findIndex((t) => !t.pending);
-      if (idx === -1) break;
-      session.turns.splice(idx, 1);
+    if (committed.length <= maxTurns) {
+      // Still might need to trim by chars
+      this.trimByChars(session);
+      return;
     }
 
-    // Trim by total character count
-    let totalChars = session.turns.reduce((sum, t) => sum + t.content.length, 0);
-    while (totalChars > this.config.maxContextChars && committedCount() > 1) {
-      const idx = session.turns.findIndex((t) => !t.pending);
-      if (idx === -1) break;
-      totalChars -= session.turns[idx].content.length;
-      session.turns.splice(idx, 1);
+    // Semantic trimming: keep first turn + last N turns, remove from middle
+    const keepTail = Math.min(10, maxTurns - 1); // reserve 1 slot for first turn
+    const firstCommittedIdx = session.turns.findIndex((t) => !t.pending);
+
+    if (firstCommittedIdx === -1) return;
+
+    // Find the boundary: we keep the first committed turn and the last keepTail committed turns
+    const committedIndices = session.turns
+      .map((t, i) => (!t.pending ? i : -1))
+      .filter((i) => i !== -1);
+
+    if (committedIndices.length <= keepTail + 1) {
+      this.trimByChars(session);
+      return;
     }
+
+    // Remove from middle: indices between first committed and the last keepTail committed
+    const removeEnd = committedIndices.length - keepTail;
+    const toRemove = committedIndices.slice(1, removeEnd);
+
+    // Remove in reverse order to preserve indices
+    for (let i = toRemove.length - 1; i >= 0; i--) {
+      session.turns.splice(toRemove[i], 1);
+    }
+
+    // Insert a marker turn after the first committed turn
+    if (toRemove.length > 0) {
+      const markerIdx = session.turns.findIndex((t) => !t.pending) + 1;
+      session.turns.splice(markerIdx, 0, {
+        role: 'assistant',
+        content: `[... ${toRemove.length} earlier turns omitted ...]`,
+        timestamp: Date.now(),
+      });
+    }
+
+    this.trimByChars(session);
 
     const trimmed = beforeCount - session.turns.length;
     if (trimmed > 0) {
       logger.debug('Session history trimmed', { sessionId: session.id, trimmed, remaining: session.turns.length });
+    }
+  }
+
+  private trimByChars(session: Session): void {
+    let totalChars = session.turns.reduce((sum, t) => sum + t.content.length, 0);
+    const committedCount = () => session.turns.filter((t) => !t.pending).length;
+
+    // Keep at least the first and last committed turns
+    while (totalChars > this.config.maxContextChars && committedCount() > 2) {
+      // Find the second committed turn (skip the first one to preserve initial context)
+      const committedIndices = session.turns
+        .map((t, i) => (!t.pending ? i : -1))
+        .filter((i) => i !== -1);
+
+      if (committedIndices.length <= 2) break;
+
+      // Remove the second committed turn (preserve first)
+      const removeIdx = committedIndices[1];
+      totalChars -= session.turns[removeIdx].content.length;
+      session.turns.splice(removeIdx, 1);
     }
   }
 
