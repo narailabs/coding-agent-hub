@@ -411,19 +411,20 @@ describe('OpenCodeAdapter', () => {
   describe('buildArgs', () => {
     it('builds correct args with prompt', () => {
       const args = adapter.buildArgs(makeInput(), 'claude-sonnet-4-5');
-      expect(args).toEqual(['run', '--format', 'json', '--model', 'claude-sonnet-4-5', 'Hello, world']);
+      expect(args).toEqual(['-p', 'Hello, world', '-f', 'json', '-q']);
     });
 
-    it('uses provided model', () => {
-      const args = adapter.buildArgs(makeInput(), 'gpt-4o-mini');
-      expect(args).toContain('gpt-4o-mini');
+    it('includes -q for quiet mode', () => {
+      const args = adapter.buildArgs(makeInput(), 'any-model');
+      expect(args).toContain('-q');
     });
   });
 
   describe('buildArgsWithoutPrompt', () => {
-    it('omits prompt from args', () => {
+    it('omits -p and prompt from args', () => {
       const args = adapter.buildArgsWithoutPrompt!(makeInput(), 'claude-sonnet-4-5');
-      expect(args).toEqual(['run', '--format', 'json', '--model', 'claude-sonnet-4-5']);
+      expect(args).toEqual(['-f', 'json', '-q']);
+      expect(args).not.toContain('-p');
       expect(args).not.toContain('Hello, world');
     });
   });

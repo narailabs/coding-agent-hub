@@ -9,24 +9,21 @@ import type { BackendAdapter } from './types.js';
 export class OpenCodeAdapter implements BackendAdapter {
   promptDelivery = 'arg' as const;
 
-  buildArgs(input: ToolInput, model: string): string[] {
+  buildArgs(input: ToolInput, _model: string): string[] {
     return [
-      'run',
-      '--format',
-      'json',
-      '--model',
-      model,
+      '-p',
       input.prompt,
+      '-f',
+      'json',
+      '-q',
     ];
   }
 
-  buildArgsWithoutPrompt(input: ToolInput, model: string): string[] {
+  buildArgsWithoutPrompt(_input: ToolInput, _model: string): string[] {
     return [
-      'run',
-      '--format',
+      '-f',
       'json',
-      '--model',
-      model,
+      '-q',
     ];
   }
 
