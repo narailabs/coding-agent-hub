@@ -3,6 +3,7 @@ import { ClaudeAdapter } from '../src/adapters/claude-adapter.js';
 import { GeminiAdapter } from '../src/adapters/gemini-adapter.js';
 import { CodexAdapter } from '../src/adapters/codex-adapter.js';
 import { OpenCodeAdapter } from '../src/adapters/opencode-adapter.js';
+import { CopilotAdapter } from '../src/adapters/copilot-adapter.js';
 import { GenericAdapter } from '../src/adapters/generic-adapter.js';
 import { getAdapter } from '../src/adapters/index.js';
 import type { BackendConfig, ToolInput } from '../src/types.js';
@@ -449,6 +450,109 @@ describe('OpenCodeAdapter', () => {
   });
 });
 
+// ─── Copilot Adapter ─────────────────────────────────────────────
+
+describe('CopilotAdapter', () => {
+  const adapter = new CopilotAdapter();
+
+  describe('extractResponse', () => {
+    it('extracts plain text response', () => {
+      const result = adapter.extractResponse('Hello from Copilot', 0);
+      expect(result!.content).toBe('Hello from Copilot');
+      expect(result!.metadata?.jsonFormat).toBe('plaintext');
+    });
+
+    it('strips ANSI escape codes', () => {
+      const ansiText = '\x1b[32mGreen text\x1b[0m and \x1b[1mbold\x1b[0m';
+      const result = adapter.extractResponse(ansiText, 0);
+      expect(result!.content).toBe('Green text and bold');
+    });
+
+    it('strips complex ANSI sequences', () => {
+      const ansiText = '\x1b[38;5;196mRed\x1b[0m \x1b[48;2;0;255;0mGreen BG\x1b[0m';
+      const result = adapter.extractResponse(ansiText, 0);
+      expect(result!.content).toBe('Red Green BG');
+    });
+
+    it('trims whitespace from response', () => {
+      const result = adapter.extractResponse('  Hello  \n', 0);
+      expect(result!.content).toBe('Hello');
+    });
+
+    it('returns null for empty output', () => {
+      expect(adapter.extractResponse('', 0)).toBeNull();
+    });
+
+    it('returns null for whitespace-only output', () => {
+      expect(adapter.extractResponse('   \n  ', 0)).toBeNull();
+    });
+
+    it('returns null for ANSI-only output', () => {
+      expect(adapter.extractResponse('\x1b[0m   \x1b[32m', 0)).toBeNull();
+    });
+
+    it('handles multiline text', () => {
+      const text = 'Line 1\nLine 2\nLine 3';
+      const result = adapter.extractResponse(text, 0);
+      expect(result!.content).toBe(text);
+    });
+
+    it('includes exitCode in metadata', () => {
+      const result = adapter.extractResponse('Some output', 1);
+      expect(result!.metadata?.exitCode).toBe(1);
+    });
+
+    it('works regardless of exit code', () => {
+      const result = adapter.extractResponse('Some output', 1);
+      expect(result).not.toBeNull();
+      expect(result!.content).toBe('Some output');
+    });
+  });
+
+  describe('buildArgs', () => {
+    it('builds correct args with prompt', () => {
+      const args = adapter.buildArgs(makeInput(), 'claude-sonnet-4-5');
+      expect(args).toEqual(['-p', 'Hello, world', '--model', 'claude-sonnet-4-5', '--allow-all-paths']);
+    });
+
+    it('uses provided model', () => {
+      const args = adapter.buildArgs(makeInput(), 'gpt-4o');
+      expect(args).toContain('gpt-4o');
+    });
+  });
+
+  describe('buildArgsWithoutPrompt', () => {
+    it('omits -p and prompt from args', () => {
+      const args = adapter.buildArgsWithoutPrompt!(makeInput(), 'claude-sonnet-4-5');
+      expect(args).toEqual(['--model', 'claude-sonnet-4-5', '--allow-all-paths']);
+      expect(args).not.toContain('-p');
+      expect(args).not.toContain('Hello, world');
+    });
+  });
+
+  describe('buildDescription', () => {
+    it('includes display name and command', () => {
+      const desc = adapter.buildDescription(makeConfig({ displayName: 'Copilot CLI', command: 'copilot' }));
+      expect(desc).toContain('Copilot CLI');
+      expect(desc).toContain('copilot');
+    });
+
+    it('includes default model', () => {
+      const desc = adapter.buildDescription(makeConfig({ defaultModel: 'claude-sonnet-4-5' }));
+      expect(desc).toContain('claude-sonnet-4-5');
+    });
+
+    it('mentions GitHub', () => {
+      const desc = adapter.buildDescription(makeConfig());
+      expect(desc).toContain('GitHub');
+    });
+  });
+
+  it('has arg prompt delivery', () => {
+    expect(adapter.promptDelivery).toBe('arg');
+  });
+});
+
 // ─── Generic Adapter ─────────────────────────────────────────────
 
 describe('GenericAdapter', () => {
@@ -526,6 +630,10 @@ describe('getAdapter', () => {
 
   it('returns OpenCodeAdapter for "opencode"', () => {
     expect(getAdapter('opencode')).toBeInstanceOf(OpenCodeAdapter);
+  });
+
+  it('returns CopilotAdapter for "copilot"', () => {
+    expect(getAdapter('copilot')).toBeInstanceOf(CopilotAdapter);
   });
 
   it('returns GenericAdapter for unknown arg builder', () => {

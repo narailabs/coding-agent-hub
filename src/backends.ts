@@ -50,6 +50,16 @@ export const DEFAULT_BACKENDS: BackendConfig[] = [
     timeoutMs: 120_000,
     argBuilder: 'opencode',
   },
+  {
+    name: 'copilot',
+    displayName: 'Copilot CLI',
+    command: 'copilot',
+    enabled: true,
+    defaultModel: 'claude-sonnet-4-5',
+    authEnvVar: 'GITHUB_TOKEN',
+    timeoutMs: 120_000,
+    argBuilder: 'copilot',
+  },
 ];
 
 /**
