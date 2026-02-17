@@ -5,7 +5,8 @@
  */
 
 import { spawn } from 'node:child_process';
-import { StdoutCollector, extractMessageContent } from './message-extractor.js';
+import { StdoutCollector } from './message-extractor.js';
+import { getAdapter } from './adapters/index.js';
 import { logger } from './logger.js';
 import type { BackendConfig, ErrorType, ToolInput, ToolResult } from './types.js';
 
@@ -29,49 +30,12 @@ const ENV_ALLOWLIST = [
 
 /**
  * Build CLI arguments based on backend type and input.
+ * Delegates to the appropriate backend adapter.
  */
 export function buildArgs(config: BackendConfig, input: ToolInput): string[] {
   const model = input.model || config.defaultModel;
-
-  switch (config.argBuilder) {
-    case 'claude':
-      return [
-        '--print',
-        '--model',
-        model,
-        '--output-format',
-        'text',
-        input.prompt,
-      ];
-
-    case 'gemini':
-      return [
-        '-p',
-        input.prompt,
-        '--output-format',
-        'json',
-        '--yolo',
-        '-m',
-        model,
-        ...(input.workingDir ? ['--include-directories', input.workingDir] : []),
-      ];
-
-    case 'codex':
-      return [
-        'exec',
-        input.prompt,
-        '--json',
-        '--model',
-        model,
-        '--full-auto',
-        '--skip-git-repo-check',
-        ...(input.workingDir ? ['--cd', input.workingDir] : []),
-      ];
-
-    case 'generic':
-    default:
-      return [input.prompt];
-  }
+  const adapter = getAdapter(config.argBuilder);
+  return adapter.buildArgs(input, model);
 }
 
 /**
@@ -104,7 +68,8 @@ export async function invokeCli(
   const startTime = Date.now();
   const model = input.model || config.defaultModel;
   const timeoutMs = input.timeoutMs || config.timeoutMs;
-  const args = buildArgs(config, input);
+  const adapter = getAdapter(config.argBuilder);
+  const args = adapter.buildArgs(input, model);
   const env = buildEnv(config);
 
   return new Promise<ToolResult>((resolve) => {
@@ -168,7 +133,7 @@ export async function invokeCli(
       logger.info('CLI exited', { backend: config.name, exitCode, durationMs });
 
       const stdout = stdoutCollector.toString();
-      const extracted = extractMessageContent(stdout, exitCode);
+      const extracted = adapter.extractResponse(stdout, exitCode);
       const stderr = Buffer.concat(stderrChunks).toString('utf-8');
 
       if (extracted && exitCode === 0) {
