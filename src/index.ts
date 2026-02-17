@@ -10,6 +10,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { createHubServer } from './hub-server.js';
 import { loadConfigFile, getDefaultConfigPath, resolveBackends, parseArgs } from './config.js';
 import { logger } from './logger.js';
+import { runPreflightChecks } from './preflight.js';
 import type { SessionConfig } from './session-manager.js';
 
 async function main() {
@@ -35,6 +36,8 @@ async function main() {
     enabledBackends: backends.filter((b) => b.enabled).map((b) => b.name),
     enabledCount,
   });
+
+  runPreflightChecks(backends);
 
   const server = createHubServer(backends, sessionConfig);
   const transport = new StdioServerTransport();
