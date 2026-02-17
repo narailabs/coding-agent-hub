@@ -175,7 +175,7 @@ describe('HubSessionManager', () => {
   });
 
   describe('context trimming', () => {
-    it('trims by maxContextTurns', () => {
+    it('trims by maxContextTurns preserving first turn', () => {
       const mgr = new HubSessionManager({
         maxContextTurns: 4,
         maxContextChars: 1_000_000,
@@ -193,10 +193,9 @@ describe('HubSessionManager', () => {
       // The 7th turn (buildPrompt) triggers trimming
       const prompt = mgr.buildPrompt(id, 'Final question');
 
-      // With maxContextTurns=4, oldest turns should be dropped
-      // After adding "Final question", there are 7 turns total, trimmed to 4
-      // History includes only the last 3 non-current turns
-      expect(prompt).not.toContain('Question 0');
+      // Semantic trimming keeps first turn + last N
+      expect(prompt).toContain('Question 0'); // first turn preserved
+      expect(prompt).toContain('earlier turns omitted'); // marker present
       expect(prompt).toContain('Final question');
 
       mgr.destroy();
@@ -223,6 +222,28 @@ describe('HubSessionManager', () => {
       // Oldest turns should be dropped to stay under 100 chars
       // The prompt should still contain the latest message
       expect(prompt).toContain('Final');
+
+      mgr.destroy();
+    });
+
+    it('inserts omission marker when middle turns are removed', () => {
+      const mgr = new HubSessionManager({
+        maxContextTurns: 4,
+        maxContextChars: 1_000_000,
+        idleTimeoutMs: 60_000,
+      });
+
+      const id = mgr.startSession('claude');
+
+      for (let i = 0; i < 5; i++) {
+        mgr.buildPrompt(id, `Q${i}`);
+        mgr.recordResponse(id, `A${i}`);
+      }
+
+      const prompt = mgr.buildPrompt(id, 'Latest');
+      expect(prompt).toContain('earlier turns omitted');
+      expect(prompt).toContain('Q0'); // first turn preserved
+      expect(prompt).toContain('Latest');
 
       mgr.destroy();
     });
