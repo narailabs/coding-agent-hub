@@ -223,6 +223,220 @@ describe('Hub Server Session Tools', () => {
     });
   });
 
+  describe('per-backend tool error details', () => {
+    it('includes errorType and retryable in error response', async () => {
+      mockInvokeCli.mockResolvedValueOnce({
+        content: 'stderr output',
+        success: false,
+        exitCode: 1,
+        durationMs: 50,
+        backend: 'test',
+        model: 'test-model-1',
+        error: 'Process exited with code 1',
+        errorType: 'exit',
+        retryable: true,
+      });
+
+      const result = await callTool(server, 'test-agent', {
+        prompt: 'test',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Error type: exit');
+      expect(result.content[0].text).toContain('Retryable: yes');
+      expect(result.content[0].text).toContain('Exit code: 1');
+    });
+
+    it('includes stderr warnings in success metadata', async () => {
+      mockInvokeCli.mockResolvedValueOnce({
+        content: 'Response text',
+        success: true,
+        exitCode: 0,
+        durationMs: 100,
+        backend: 'test',
+        model: 'test-model-1',
+        stderr: 'some warning output',
+      });
+
+      const result = await callTool(server, 'test-agent', {
+        prompt: 'test',
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('Response text');
+      expect(result.content[0].text).toContain('Warnings: some warning output');
+    });
+
+    it('omits warnings when stderr is empty', async () => {
+      mockInvokeCli.mockResolvedValueOnce({
+        content: 'Clean response',
+        success: true,
+        exitCode: 0,
+        durationMs: 100,
+        backend: 'test',
+        model: 'test-model-1',
+        stderr: '',
+      });
+
+      const result = await callTool(server, 'test-agent', {
+        prompt: 'test',
+      });
+
+      expect(result.content[0].text).not.toContain('Warnings');
+    });
+
+    it('rolls back session turn on CLI failure via backend tool', async () => {
+      const startResult = await callTool(server, 'hub-session-start', { backend: 'test' });
+      const { sessionId } = JSON.parse(startResult.content[0].text);
+
+      mockInvokeCli.mockResolvedValueOnce({
+        content: '',
+        success: false,
+        exitCode: 1,
+        durationMs: 50,
+        backend: 'test',
+        model: 'test-model-1',
+        error: 'CLI failed',
+        errorType: 'exit',
+        retryable: true,
+      });
+
+      const result = await callTool(server, 'test-agent', {
+        prompt: 'will fail',
+        sessionId,
+      });
+
+      expect(result.isError).toBe(true);
+
+      // Verify the failed turn was rolled back by sending a new message
+      // that should NOT contain the failed prompt in history
+      mockInvokeCli.mockResolvedValueOnce({
+        content: 'Success',
+        success: true,
+        exitCode: 0,
+        durationMs: 100,
+        backend: 'test',
+        model: 'test-model-1',
+      });
+
+      await callTool(server, 'hub-session-message', {
+        sessionId,
+        message: 'after failure',
+      });
+
+      const callPrompt = mockInvokeCli.mock.calls[1][1].prompt;
+      expect(callPrompt).not.toContain('will fail');
+      expect(callPrompt).toBe('after failure');
+    });
+  });
+
+  describe('hub-session-message error details', () => {
+    it('includes errorType and retryable in session message failure', async () => {
+      const startResult = await callTool(server, 'hub-session-start', { backend: 'test' });
+      const { sessionId } = JSON.parse(startResult.content[0].text);
+
+      mockInvokeCli.mockResolvedValueOnce({
+        content: 'error output',
+        success: false,
+        exitCode: 1,
+        durationMs: 50,
+        backend: 'test',
+        model: 'test-model-1',
+        error: 'Auth failed',
+        errorType: 'auth',
+        retryable: false,
+      });
+
+      const result = await callTool(server, 'hub-session-message', {
+        sessionId,
+        message: 'test',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Error type: auth');
+      expect(result.content[0].text).not.toContain('Retryable: yes');
+    });
+
+    it('includes stderr warnings in session message success metadata', async () => {
+      const startResult = await callTool(server, 'hub-session-start', { backend: 'test' });
+      const { sessionId } = JSON.parse(startResult.content[0].text);
+
+      mockInvokeCli.mockResolvedValueOnce({
+        content: 'Good response',
+        success: true,
+        exitCode: 0,
+        durationMs: 100,
+        backend: 'test',
+        model: 'test-model-1',
+        stderr: 'deprecation warning',
+      });
+
+      const result = await callTool(server, 'hub-session-message', {
+        sessionId,
+        message: 'test',
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('Good response');
+      expect(result.content[0].text).toContain('Warnings: deprecation warning');
+      expect(result.content[0].text).toContain(`Session: ${sessionId}`);
+    });
+
+    it('includes retryable flag for exit errors in session message', async () => {
+      const startResult = await callTool(server, 'hub-session-start', { backend: 'test' });
+      const { sessionId } = JSON.parse(startResult.content[0].text);
+
+      mockInvokeCli.mockResolvedValueOnce({
+        content: '',
+        success: false,
+        exitCode: 2,
+        durationMs: 50,
+        backend: 'test',
+        model: 'test-model-1',
+        error: 'Process exited with code 2',
+        errorType: 'exit',
+        retryable: true,
+      });
+
+      const result = await callTool(server, 'hub-session-message', {
+        sessionId,
+        message: 'test',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Retryable: yes');
+      expect(result.content[0].text).toContain('Error type: exit');
+    });
+  });
+
+  describe('hub-session-start with custom sessionId', () => {
+    it('accepts a custom session ID', async () => {
+      const result = await callTool(server, 'hub-session-start', {
+        backend: 'test',
+        sessionId: 'my-custom-id',
+      });
+
+      expect(result.isError).toBeUndefined();
+      const data = JSON.parse(result.content[0].text);
+      expect(data.sessionId).toBe('my-custom-id');
+    });
+
+    it('rejects duplicate custom session ID', async () => {
+      await callTool(server, 'hub-session-start', {
+        backend: 'test',
+        sessionId: 'duplicate-id',
+      });
+
+      const result = await callTool(server, 'hub-session-start', {
+        backend: 'test',
+        sessionId: 'duplicate-id',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('duplicate-id');
+    });
+  });
+
   describe('sessionId on existing backend tools', () => {
     it('augments prompt when sessionId is provided', async () => {
       // Start a session
