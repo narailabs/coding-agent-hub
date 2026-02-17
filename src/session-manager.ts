@@ -6,6 +6,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import { logger } from './logger.js';
 
 /**
  * Configuration for the session manager.
@@ -99,6 +100,8 @@ export class HubSessionManager {
     this.sessions.set(id, session);
     this.resetIdleTimer(session);
 
+    logger.info('Session created', { sessionId: id, backend });
+
     return id;
   }
 
@@ -152,6 +155,8 @@ export class HubSessionManager {
 
     session.lastActiveAt = Date.now();
     this.resetIdleTimer(session);
+
+    logger.debug('Response recorded', { sessionId, turnCount: session.turns.length });
   }
 
   /**
@@ -167,6 +172,8 @@ export class HubSessionManager {
       clearTimeout(session.idleTimer);
     }
     this.sessions.delete(sessionId);
+
+    logger.info('Session stopped', { sessionId });
     return true;
   }
 
@@ -214,11 +221,14 @@ export class HubSessionManager {
       clearTimeout(session.idleTimer);
     }
     session.idleTimer = setTimeout(() => {
+      logger.info('Session expired (idle)', { sessionId: session.id });
       this.sessions.delete(session.id);
     }, this.config.idleTimeoutMs);
   }
 
   private trimHistory(session: Session): void {
+    const beforeCount = session.turns.length;
+
     // Trim by turn count
     while (session.turns.length > this.config.maxContextTurns) {
       session.turns.shift();
@@ -231,6 +241,11 @@ export class HubSessionManager {
       if (removed) {
         totalChars -= removed.content.length;
       }
+    }
+
+    const trimmed = beforeCount - session.turns.length;
+    if (trimmed > 0) {
+      logger.debug('Session history trimmed', { sessionId: session.id, trimmed, remaining: session.turns.length });
     }
   }
 

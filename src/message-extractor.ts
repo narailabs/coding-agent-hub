@@ -5,6 +5,8 @@
  * Handles JSON formats (Gemini, Claude) and plain text fallback.
  */
 
+import { logger } from './logger.js';
+
 /** Maximum stdout buffer size (5MB) */
 const MAX_BUFFER_SIZE = 5 * 1024 * 1024;
 
@@ -108,7 +110,7 @@ export class StdoutCollector {
         this.totalSize = MAX_BUFFER_SIZE;
       }
       this.truncated = true;
-      console.warn('[coding-agent-hub] stdout truncated at 5MB limit');
+      logger.warn('stdout truncated at 5MB limit');
     } else {
       this.chunks.push(chunk);
       this.totalSize += chunk.length;
