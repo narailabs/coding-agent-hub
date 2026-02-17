@@ -27,6 +27,16 @@ export interface SessionTurn {
   role: 'user' | 'assistant';
   content: string;
   timestamp: number;
+  /** Whether this turn is staged (pending CLI response). */
+  pending?: boolean;
+}
+
+/**
+ * Result from staging a user turn for transactional commit/rollback.
+ */
+export interface StagedTurn {
+  prompt: string;
+  turnIndex: number;
 }
 
 /**
@@ -139,7 +149,94 @@ export class HubSessionManager {
   }
 
   /**
+   * Stage a user turn and build an augmented prompt. The turn is marked
+   * pending and will only be committed on success (commitTurn) or
+   * rolled back on failure (rollbackTurn).
+   */
+  stageUserTurn(sessionId: string, userMessage: string): StagedTurn {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    const turn: SessionTurn = {
+      role: 'user',
+      content: userMessage,
+      timestamp: Date.now(),
+      pending: true,
+    };
+    session.turns.push(turn);
+    const turnIndex = session.turns.length - 1;
+
+    session.lastActiveAt = Date.now();
+    this.resetIdleTimer(session);
+    this.trimHistory(session);
+
+    // Build prompt
+    let prompt: string;
+    const committedTurns = session.turns.filter((t) => !t.pending);
+    if (committedTurns.length === 0) {
+      prompt = userMessage;
+    } else {
+      const contextBlock = this.buildContextBlock(committedTurns);
+      prompt = `${contextBlock}\n\nBased on the conversation above, respond to the latest message.\nThe new message is: ${userMessage}`;
+    }
+
+    logger.debug('User turn staged', { sessionId, turnIndex });
+    return { prompt, turnIndex };
+  }
+
+  /**
+   * Commit a staged turn and record the assistant response.
+   */
+  commitTurn(sessionId: string, turnIndex: number, assistantContent: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    const turn = session.turns[turnIndex];
+    if (!turn || !turn.pending) {
+      throw new Error(`No pending turn at index ${turnIndex}`);
+    }
+
+    // Commit the user turn
+    turn.pending = false;
+
+    // Add assistant turn
+    session.turns.push({
+      role: 'assistant',
+      content: assistantContent,
+      timestamp: Date.now(),
+    });
+
+    session.lastActiveAt = Date.now();
+    this.resetIdleTimer(session);
+
+    logger.debug('Turn committed', { sessionId, turnIndex, turnCount: session.turns.length });
+  }
+
+  /**
+   * Roll back a staged turn (remove it from history).
+   */
+  rollbackTurn(sessionId: string, turnIndex: number): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    const turn = session.turns[turnIndex];
+    if (!turn || !turn.pending) {
+      throw new Error(`No pending turn at index ${turnIndex}`);
+    }
+
+    session.turns.splice(turnIndex, 1);
+    logger.debug('Turn rolled back', { sessionId, turnIndex });
+  }
+
+  /**
    * Record the assistant's response after CLI invocation.
+   * @deprecated Use stageUserTurn/commitTurn/rollbackTurn instead.
    */
   recordResponse(sessionId: string, assistantContent: string): void {
     const session = this.sessions.get(sessionId);
@@ -212,7 +309,7 @@ export class HubSessionManager {
       workingDir: session.workingDir,
       createdAt: session.createdAt,
       lastActiveAt: session.lastActiveAt,
-      turnCount: session.turns.length,
+      turnCount: session.turns.filter((t) => !t.pending).length,
     };
   }
 
@@ -229,18 +326,23 @@ export class HubSessionManager {
   private trimHistory(session: Session): void {
     const beforeCount = session.turns.length;
 
+    // Only trim committed turns (never remove pending turns)
+    const committedCount = () => session.turns.filter((t) => !t.pending).length;
+
     // Trim by turn count
-    while (session.turns.length > this.config.maxContextTurns) {
-      session.turns.shift();
+    while (committedCount() > this.config.maxContextTurns) {
+      const idx = session.turns.findIndex((t) => !t.pending);
+      if (idx === -1) break;
+      session.turns.splice(idx, 1);
     }
 
     // Trim by total character count
     let totalChars = session.turns.reduce((sum, t) => sum + t.content.length, 0);
-    while (totalChars > this.config.maxContextChars && session.turns.length > 1) {
-      const removed = session.turns.shift();
-      if (removed) {
-        totalChars -= removed.content.length;
-      }
+    while (totalChars > this.config.maxContextChars && committedCount() > 1) {
+      const idx = session.turns.findIndex((t) => !t.pending);
+      if (idx === -1) break;
+      totalChars -= session.turns[idx].content.length;
+      session.turns.splice(idx, 1);
     }
 
     const trimmed = beforeCount - session.turns.length;
