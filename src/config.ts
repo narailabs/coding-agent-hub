@@ -142,10 +142,11 @@ Examples:
   coding-agent-hub --config ./my-config.json
 
 Claude Code integration:
-  Add to .claude/settings.json:
+  Add to .mcp.json in your project root:
   {
     "mcpServers": {
       "coding-agent-hub": {
+        "type": "stdio",
         "command": "npx",
         "args": ["coding-agent-hub"]
       }
