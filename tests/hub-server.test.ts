@@ -43,7 +43,7 @@ describe('buildToolDescription', () => {
       displayName: 'Codex CLI',
       command: 'codex',
       enabled: true,
-      defaultModel: 'codex-1',
+      defaultModel: 'gpt-5.3-codex-spark',
       timeoutMs: 120_000,
       argBuilder: 'codex',
     };
