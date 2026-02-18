@@ -289,10 +289,10 @@ describe('CodexAdapter', () => {
   });
 
   describe('buildArgsWithoutPrompt', () => {
-    it('replaces prompt with --stdin flag', () => {
+    it('omits positional prompt and relies on stdin piping', () => {
       const args = adapter.buildArgsWithoutPrompt!(makeInput(), 'gpt-5.3-codex-spark');
       expect(args[0]).toBe('exec');
-      expect(args).toContain('--stdin');
+      expect(args).not.toContain('--stdin');
       expect(args).toContain('--json');
       expect(args).toContain('--model');
       expect(args).toContain('gpt-5.3-codex-spark');

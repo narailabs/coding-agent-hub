@@ -25,7 +25,6 @@ export class CodexAdapter implements BackendAdapter {
   buildArgsWithoutPrompt(input: ToolInput, model: string): string[] {
     return [
       'exec',
-      '--stdin',
       '--json',
       '--model',
       model,
