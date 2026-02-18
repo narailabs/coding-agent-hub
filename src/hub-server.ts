@@ -59,7 +59,7 @@ export function createHubServer(
       });
       return true;
     } catch (error) {
-      logger.warn('Session metadata update skipped; session no longer available', {
+      logger.debug('Session metadata update skipped; session no longer available', {
         sessionId,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -72,7 +72,7 @@ export function createHubServer(
       sessionManager.commitTurn(sessionId, turnIndex, content);
       return true;
     } catch (error) {
-      logger.warn('Session turn commit skipped; session no longer available', {
+      logger.debug('Session turn commit skipped; session no longer available', {
         sessionId,
         turnIndex,
         error: error instanceof Error ? error.message : String(error),
@@ -86,7 +86,7 @@ export function createHubServer(
       sessionManager.rollbackTurn(sessionId, turnIndex);
       return true;
     } catch (error) {
-      logger.warn('Session turn rollback skipped; session no longer available', {
+      logger.debug('Session turn rollback skipped; session no longer available', {
         sessionId,
         turnIndex,
         error: error instanceof Error ? error.message : String(error),
