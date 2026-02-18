@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { buildArgs, buildEnv, invokeCli } from '../src/cli-invoker.js';
 import type { BackendConfig, ToolInput } from '../src/types.js';
+import type { AgentPlugin } from '../src/plugins/types.js';
 
 function makeConfig(overrides: Partial<BackendConfig> = {}): BackendConfig {
   return {
@@ -333,5 +334,82 @@ describe('invokeCli', () => {
     const result = await invokeCli(cliConfig(), makeInput({ prompt: 'auth-401' }));
 
     expect(result.stderr).toContain('401');
+  });
+
+  it('uses plugin parser for response extraction', async () => {
+    let parsed = '';
+    const plugin = {
+      id: 'test-plugin',
+      displayName: 'Test',
+      preferredContinuity: 'hub',
+      matches: () => true,
+      detectCapabilities: async () => ({
+        pluginId: 'test-plugin',
+        detectedAt: Date.now(),
+        cached: true,
+        supportsNativeSession: false,
+      }),
+      buildOneShotInvocation: async () => ({ args: ['echo'] }),
+      buildNativeStartInvocation: async () => ({ args: ['echo'] }),
+      buildNativeContinueInvocation: async () => ({ args: ['echo'] }),
+      extractResponse: (stdout: string) => {
+        parsed = stdout.toUpperCase();
+        return { content: parsed };
+      },
+      fallbackCapabilities: () => ({
+        pluginId: 'test-plugin',
+        detectedAt: Date.now(),
+        cached: true,
+        supportsNativeSession: false,
+      }),
+    } as unknown as AgentPlugin;
+
+    const result = await invokeCli(cliConfig({ argBuilder: 'generic' }), makeInput({ prompt: 'ignored' }), {
+      invocation: { args: ['echo'] },
+      plugin,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.content).toBe(parsed);
+    expect(parsed).toBe('HELLO FROM THE CLI TEST OUTPUT THAT IS LONG ENOUGH');
+  });
+
+  it('passes result through plugin error classifier', async () => {
+    let classified = false;
+    const plugin = {
+      id: 'test-plugin',
+      displayName: 'Test',
+      preferredContinuity: 'hub',
+      matches: () => true,
+      detectCapabilities: async () => ({
+        pluginId: 'test-plugin',
+        detectedAt: Date.now(),
+        cached: true,
+        supportsNativeSession: false,
+      }),
+      buildOneShotInvocation: async () => ({ args: ['exit42'] }),
+      buildNativeStartInvocation: async () => ({ args: ['exit42'] }),
+      buildNativeContinueInvocation: async () => ({ args: ['exit42'] }),
+      extractResponse: () => undefined,
+      classifyError: (result) => {
+        classified = true;
+        return { ...result, retryable: false };
+      },
+      fallbackCapabilities: () => ({
+        pluginId: 'test-plugin',
+        detectedAt: Date.now(),
+        cached: true,
+        supportsNativeSession: false,
+      }),
+    } as unknown as AgentPlugin;
+
+    const result = await invokeCli(cliConfig({ argBuilder: 'generic' }), makeInput({ prompt: 'ignored' }), {
+      invocation: { args: ['exit42'] },
+      plugin,
+    });
+
+    expect(classified).toBe(true);
+    expect(result.retryable).toBe(false);
+    expect(result.exitCode).toBe(42);
   });
 });

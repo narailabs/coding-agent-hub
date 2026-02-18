@@ -8,6 +8,8 @@
 import { randomUUID } from 'node:crypto';
 import { logger } from './logger.js';
 import type { SessionStore, SerializedSession } from './session-store.js';
+import type { ContinuityMode } from './plugins/types.js';
+import type { PluginCapabilitySnapshot } from './plugins/types.js';
 
 /**
  * Configuration for the session manager.
@@ -38,6 +40,7 @@ export interface SessionTurn {
 export interface StagedTurn {
   prompt: string;
   turnIndex: number;
+  isSessionStart: boolean;
 }
 
 /**
@@ -51,6 +54,10 @@ export interface SessionInfo {
   createdAt: number;
   lastActiveAt: number;
   turnCount: number;
+  pluginId?: string;
+  continuityMode?: ContinuityMode;
+  nativeSessionRef?: string | null;
+  capabilitySnapshot?: PluginCapabilitySnapshot;
 }
 
 interface Session {
@@ -58,6 +65,10 @@ interface Session {
   backend: string;
   model: string;
   workingDir?: string;
+  pluginId?: string;
+  continuityMode: ContinuityMode;
+  nativeSessionRef?: string | null;
+  capabilitySnapshot?: PluginCapabilitySnapshot;
   turns: SessionTurn[];
   createdAt: number;
   lastActiveAt: number;
@@ -113,6 +124,10 @@ export class HubSessionManager {
         backend: data.backend,
         model: data.model,
         workingDir: data.workingDir,
+        pluginId: data.pluginId,
+        continuityMode: data.continuityMode ?? 'hub',
+        nativeSessionRef: data.nativeSessionRef ?? null,
+        capabilitySnapshot: data.capabilitySnapshot,
         turns: data.turns,
         createdAt: data.createdAt,
         lastActiveAt: data.lastActiveAt,
@@ -132,7 +147,18 @@ export class HubSessionManager {
   /**
    * Create a new session and return its ID.
    */
-  startSession(backend: string, opts?: { model?: string; workingDir?: string; sessionId?: string }): string {
+  startSession(
+    backend: string,
+      opts?: {
+        model?: string;
+        workingDir?: string;
+        sessionId?: string;
+        pluginId?: string;
+        continuityMode?: ContinuityMode;
+        nativeSessionRef?: string | null;
+        capabilitySnapshot?: PluginCapabilitySnapshot;
+      },
+    ): string {
     const id = opts?.sessionId ?? randomUUID();
 
     if (this.sessions.has(id)) {
@@ -145,6 +171,10 @@ export class HubSessionManager {
       backend,
       model: opts?.model ?? '',
       workingDir: opts?.workingDir,
+      pluginId: opts?.pluginId,
+      continuityMode: opts?.continuityMode ?? 'hub',
+      nativeSessionRef: opts?.nativeSessionRef,
+      capabilitySnapshot: opts?.capabilitySnapshot,
       turns: [],
       createdAt: now,
       lastActiveAt: now,
@@ -158,6 +188,42 @@ export class HubSessionManager {
     logger.info('Session created', { sessionId: id, backend });
 
     return id;
+  }
+
+  /**
+   * Update session metadata without changing turn history.
+   * Useful when runtime behavior changes during a session (e.g. native -> hub fallback).
+   */
+  updateSessionMetadata(
+    sessionId: string,
+    patch: {
+      pluginId?: string;
+      continuityMode?: ContinuityMode;
+      nativeSessionRef?: string | null;
+      capabilitySnapshot?: PluginCapabilitySnapshot;
+    },
+  ): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      throw new Error(`Session not found: ${sessionId}`);
+    }
+
+    if (patch.pluginId !== undefined) {
+      session.pluginId = patch.pluginId;
+    }
+    if (patch.continuityMode !== undefined) {
+      session.continuityMode = patch.continuityMode;
+    }
+    if (patch.nativeSessionRef !== undefined) {
+      session.nativeSessionRef = patch.nativeSessionRef;
+    }
+    if (patch.capabilitySnapshot !== undefined) {
+      session.capabilitySnapshot = patch.capabilitySnapshot;
+    }
+
+    session.lastActiveAt = Date.now();
+    this.resetIdleTimer(session);
+    this.persistSession(session);
   }
 
   /**
@@ -198,11 +264,16 @@ export class HubSessionManager {
    * pending and will only be committed on success (commitTurn) or
    * rolled back on failure (rollbackTurn).
    */
-  stageUserTurn(sessionId: string, userMessage: string): StagedTurn {
+  stageUserTurn(
+    sessionId: string,
+    userMessage: string,
+    options?: { includeHistory?: boolean },
+  ): StagedTurn {
     const session = this.sessions.get(sessionId);
     if (!session) {
       throw new Error(`Session not found: ${sessionId}`);
     }
+    const includeHistory = options?.includeHistory !== false;
 
     const turn: SessionTurn = {
       role: 'user',
@@ -220,7 +291,8 @@ export class HubSessionManager {
     // Build prompt
     let prompt: string;
     const committedTurns = session.turns.filter((t) => !t.pending);
-    if (committedTurns.length === 0) {
+    const isSessionStart = committedTurns.length === 0;
+    if (!includeHistory || committedTurns.length === 0) {
       prompt = userMessage;
     } else {
       const contextBlock = this.buildContextBlock(committedTurns);
@@ -228,7 +300,7 @@ export class HubSessionManager {
     }
 
     logger.debug('User turn staged', { sessionId, turnIndex });
-    return { prompt, turnIndex };
+    return { prompt, turnIndex, isSessionStart };
   }
 
   /**
@@ -356,6 +428,10 @@ export class HubSessionManager {
       backend: session.backend,
       model: session.model,
       workingDir: session.workingDir,
+      pluginId: session.pluginId,
+      continuityMode: session.continuityMode,
+      nativeSessionRef: session.nativeSessionRef,
+      capabilitySnapshot: session.capabilitySnapshot,
       turns: session.turns.filter((t) => !t.pending),
       createdAt: session.createdAt,
       lastActiveAt: session.lastActiveAt,
@@ -369,6 +445,10 @@ export class HubSessionManager {
       backend: session.backend,
       model: session.model,
       workingDir: session.workingDir,
+      pluginId: session.pluginId,
+      continuityMode: session.continuityMode,
+      nativeSessionRef: session.nativeSessionRef,
+      capabilitySnapshot: session.capabilitySnapshot,
       createdAt: session.createdAt,
       lastActiveAt: session.lastActiveAt,
       turnCount: session.turns.filter((t) => !t.pending).length,

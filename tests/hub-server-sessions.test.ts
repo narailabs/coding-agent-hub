@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createHubServer } from '../src/hub-server.js';
 import type { BackendConfig } from '../src/types.js';
+import { FileSessionStore } from '../src/session-store.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 /**
  * Integration tests for session tools in the hub server.
@@ -85,6 +89,95 @@ describe('Hub Server Session Tools', () => {
       const data = JSON.parse(result.content[0].text);
       expect(data.sessionId).toBeDefined();
       expect(data.model).toBe('custom-model');
+    });
+
+    it('includes plugin continuity metadata', async () => {
+      const pluginRuntime = {
+        resolveSessionMetadata: vi.fn(async () => ({
+          plugin: { id: 'test-plugin', displayName: 'Test Plugin', preferredContinuity: 'native' },
+          capabilities: {
+            pluginId: 'test-plugin',
+            detectedAt: Date.now(),
+            cached: true,
+            supportsNativeSession: true,
+            supportsNativeStart: true,
+            supportsNativeContinue: true,
+          },
+          continuityMode: 'native',
+        })),
+        buildInvocation: vi.fn(),
+      };
+
+      const nativeServer = createHubServer([TEST_BACKEND], { idleTimeoutMs: 60_000 }, undefined, pluginRuntime as any);
+      const result = await callTool(nativeServer, 'hub-session-start', {
+        backend: 'test',
+      });
+
+      expect(result.isError).toBeUndefined();
+      const data = JSON.parse(result.content[0].text);
+      expect(data.pluginId).toBe('test-plugin');
+      expect(data.continuityMode).toBe('native');
+      expect(pluginRuntime.resolveSessionMetadata).toHaveBeenCalled();
+    });
+
+    it('persists plugin metadata/capability snapshot and restores it after server restart', async () => {
+      const storeDir = mkdtempSync(join(tmpdir(), 'hub-session-store-'));
+      const store = new FileSessionStore(storeDir);
+      try {
+        const pluginRuntime = {
+          resolveSessionMetadata: vi.fn(async () => ({
+            plugin: { id: 'test-plugin', displayName: 'Test Plugin', preferredContinuity: 'native' },
+            capabilities: {
+              pluginId: 'test-plugin',
+              detectedAt: Date.now(),
+              cached: true,
+              supportsNativeSession: true,
+              supportsNativeStart: true,
+              supportsNativeContinue: true,
+              nativeSessionResumeMode: 'subcommand',
+            },
+            continuityMode: 'native',
+          })),
+          buildInvocation: vi.fn(),
+        };
+
+        const persistentServer = createHubServer(
+          [TEST_BACKEND],
+          { idleTimeoutMs: 60_000 },
+          store,
+          pluginRuntime as any,
+        );
+        const startResult = await callTool(persistentServer, 'hub-session-start', {
+          backend: 'test',
+          sessionId: 'persisted-session',
+        });
+        const { sessionId, pluginId, continuityMode } = JSON.parse(startResult.content[0].text);
+        expect(sessionId).toBe('persisted-session');
+        expect(pluginId).toBe('test-plugin');
+        expect(continuityMode).toBe('native');
+
+        const saved = store.load(sessionId)!;
+        expect(saved.pluginId).toBe('test-plugin');
+        expect(saved.continuityMode).toBe('native');
+        expect(saved.capabilitySnapshot?.pluginId).toBe('test-plugin');
+        expect(saved.capabilitySnapshot?.supportsNativeSession).toBe(true);
+
+        const restartedServer = createHubServer(
+          [TEST_BACKEND],
+          { idleTimeoutMs: 60_000 },
+          store,
+          pluginRuntime as any,
+        );
+        const listResult = await callTool(restartedServer, 'hub-session-list', {});
+        const sessions = JSON.parse(listResult.content[0].text);
+        const restored = sessions.find((entry: { sessionId: string }) => entry.sessionId === sessionId);
+        expect(restored).toBeDefined();
+        expect(restored?.pluginId).toBe('test-plugin');
+        expect(restored?.continuityMode).toBe('native');
+        expect(restored?.capabilitySnapshot?.pluginId).toBe('test-plugin');
+      } finally {
+        rmSync(storeDir, { recursive: true, force: true });
+      }
     });
   });
 
@@ -223,7 +316,26 @@ describe('Hub Server Session Tools', () => {
     });
   });
 
-  describe('per-backend tool error details', () => {
+  describe('hub-agent error details', () => {
+    it('requires backend when sessionId is not provided', async () => {
+      const result = await callTool(server, 'hub-agent', {
+        prompt: 'test',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Missing required argument: backend');
+    });
+
+    it('rejects unknown backend', async () => {
+      const result = await callTool(server, 'hub-agent', {
+        backend: 'unknown',
+        prompt: 'test',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Unknown or disabled backend');
+    });
+
     it('includes errorType and retryable in error response', async () => {
       mockInvokeCli.mockResolvedValueOnce({
         content: 'stderr output',
@@ -237,7 +349,8 @@ describe('Hub Server Session Tools', () => {
         retryable: true,
       });
 
-      const result = await callTool(server, 'test-agent', {
+      const result = await callTool(server, 'hub-agent', {
+        backend: 'test',
         prompt: 'test',
       });
 
@@ -258,7 +371,8 @@ describe('Hub Server Session Tools', () => {
         stderr: 'some warning output',
       });
 
-      const result = await callTool(server, 'test-agent', {
+      const result = await callTool(server, 'hub-agent', {
+        backend: 'test',
         prompt: 'test',
       });
 
@@ -278,14 +392,15 @@ describe('Hub Server Session Tools', () => {
         stderr: '',
       });
 
-      const result = await callTool(server, 'test-agent', {
+      const result = await callTool(server, 'hub-agent', {
+        backend: 'test',
         prompt: 'test',
       });
 
       expect(result.content[0].text).not.toContain('Warnings');
     });
 
-    it('rolls back session turn on CLI failure via backend tool', async () => {
+    it('rolls back session turn on CLI failure via hub-agent', async () => {
       const startResult = await callTool(server, 'hub-session-start', { backend: 'test' });
       const { sessionId } = JSON.parse(startResult.content[0].text);
 
@@ -301,7 +416,7 @@ describe('Hub Server Session Tools', () => {
         retryable: true,
       });
 
-      const result = await callTool(server, 'test-agent', {
+      const result = await callTool(server, 'hub-agent', {
         prompt: 'will fail',
         sessionId,
       });
@@ -407,6 +522,218 @@ describe('Hub Server Session Tools', () => {
       expect(result.content[0].text).toContain('Retryable: yes');
       expect(result.content[0].text).toContain('Error type: exit');
     });
+
+    it('omits hub history for native-mode sessions', async () => {
+      const pluginRuntime = {
+        resolveSessionMetadata: vi.fn(async () => ({
+          plugin: { id: 'test-plugin', displayName: 'Test Plugin', preferredContinuity: 'native' },
+          capabilities: {
+            pluginId: 'test-plugin',
+            detectedAt: Date.now(),
+            cached: true,
+            supportsNativeSession: true,
+            supportsNativeStart: true,
+            supportsNativeContinue: true,
+          },
+          continuityMode: 'native',
+        })),
+        buildInvocation: vi.fn(async ({ input, mode, isSessionStart }) => ({
+          plugin: { id: 'test-plugin', displayName: 'Test Plugin', preferredContinuity: 'native' },
+          pluginId: 'test-plugin',
+          mode: (mode as 'native' | 'hub') ?? (isSessionStart ? 'native' : 'native'),
+          invocation: { args: ['--input', input.prompt] },
+          capabilities: {
+            pluginId: 'test-plugin',
+            detectedAt: Date.now(),
+            cached: true,
+            supportsNativeSession: true,
+            supportsNativeStart: true,
+            supportsNativeContinue: true,
+          },
+        })),
+      };
+
+      const nativeServer = createHubServer([TEST_BACKEND], { idleTimeoutMs: 60_000 }, undefined, pluginRuntime as any);
+
+      const startResult = await callTool(nativeServer, 'hub-session-start', { backend: 'test' });
+      const { sessionId } = JSON.parse(startResult.content[0].text);
+
+      mockInvokeCli.mockResolvedValueOnce({
+        content: 'First response',
+        success: true,
+        exitCode: 0,
+        durationMs: 100,
+        backend: 'test',
+        model: 'test-model-1',
+      });
+
+      await callTool(nativeServer, 'hub-session-message', {
+        sessionId,
+        message: 'First message',
+      });
+
+      mockInvokeCli.mockResolvedValueOnce({
+        content: 'Second response',
+        success: true,
+        exitCode: 0,
+        durationMs: 100,
+        backend: 'test',
+        model: 'test-model-1',
+      });
+
+      await callTool(nativeServer, 'hub-session-message', {
+        sessionId,
+        message: 'Second message',
+      });
+
+      const secondPrompt = mockInvokeCli.mock.calls[1][1].prompt;
+      expect(secondPrompt).toBe('Second message');
+      expect(mockInvokeCli).toHaveBeenCalledTimes(2);
+    });
+
+    it('falls back to hub mode on native flag errors and updates continuity metadata', async () => {
+      const pluginRuntime = {
+        resolveSessionMetadata: vi.fn(async () => ({
+          plugin: { id: 'test-plugin', displayName: 'Test Plugin', preferredContinuity: 'native' },
+          capabilities: {
+            pluginId: 'test-plugin',
+            detectedAt: Date.now(),
+            cached: true,
+            supportsNativeSession: true,
+            supportsNativeStart: true,
+            supportsNativeContinue: true,
+          },
+          continuityMode: 'native',
+        })),
+        buildInvocation: vi.fn()
+          .mockResolvedValueOnce({
+            plugin: { id: 'test-plugin', displayName: 'Test Plugin', preferredContinuity: 'native' },
+            pluginId: 'test-plugin',
+            mode: 'native',
+            invocation: { args: ['--session-id', 'first'] },
+            capabilities: {
+              pluginId: 'test-plugin',
+              detectedAt: Date.now(),
+              cached: true,
+              supportsNativeSession: true,
+              supportsNativeStart: true,
+              supportsNativeContinue: true,
+            },
+          })
+          .mockResolvedValueOnce({
+            plugin: { id: 'test-plugin', displayName: 'Test Plugin', preferredContinuity: 'native' },
+            pluginId: 'test-plugin',
+            mode: 'hub',
+            invocation: { args: ['second'] },
+            capabilities: {
+              pluginId: 'test-plugin',
+              detectedAt: Date.now(),
+              cached: true,
+              supportsNativeSession: true,
+              supportsNativeStart: true,
+              supportsNativeContinue: true,
+            },
+          }),
+        isNativeFallbackError: vi.fn(() => true),
+      };
+
+      const nativeServer = createHubServer([TEST_BACKEND], { idleTimeoutMs: 60_000 }, undefined, pluginRuntime as any);
+      const startResult = await callTool(nativeServer, 'hub-session-start', { backend: 'test' });
+      const { sessionId } = JSON.parse(startResult.content[0].text);
+
+      mockInvokeCli.mockResolvedValueOnce({
+        content: '',
+        success: false,
+        exitCode: 1,
+        durationMs: 110,
+        backend: 'test',
+        model: 'test-model-1',
+        error: 'unknown CLI option',
+        stderr: 'unknown option: --session-id',
+      });
+      mockInvokeCli.mockResolvedValueOnce({
+        content: 'Recovered response',
+        success: true,
+        exitCode: 0,
+        durationMs: 80,
+        backend: 'test',
+        model: 'test-model-1',
+      });
+
+      const result = await callTool(nativeServer, 'hub-session-message', {
+        sessionId,
+        message: 'Hello after fallback',
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.content[0].text).toContain('Recovered response');
+      expect(mockInvokeCli).toHaveBeenCalledTimes(2);
+      expect(pluginRuntime.buildInvocation).toHaveBeenCalledTimes(2);
+      expect(pluginRuntime.buildInvocation.mock.calls[1][0].mode).toBe('hub');
+
+      const listResult = await callTool(nativeServer, 'hub-session-list', {});
+      const sessions = JSON.parse(listResult.content[0].text);
+      expect(sessions[0].continuityMode).toBe('hub');
+      expect(sessions[0].nativeSessionRef).toBeNull();
+      expect(sessions[0].sessionId).toBe(sessionId);
+    });
+
+    it('stores native session ref when native mode succeeds', async () => {
+      const pluginRuntime = {
+        resolveSessionMetadata: vi.fn(async () => ({
+          plugin: { id: 'test-plugin', displayName: 'Test Plugin', preferredContinuity: 'native' },
+          capabilities: {
+            pluginId: 'test-plugin',
+            detectedAt: Date.now(),
+            cached: true,
+            supportsNativeSession: true,
+            supportsNativeStart: true,
+            supportsNativeContinue: true,
+          },
+          continuityMode: 'native',
+        })),
+        buildInvocation: vi.fn(async () => ({
+          plugin: { id: 'test-plugin', displayName: 'Test Plugin', preferredContinuity: 'native' },
+          pluginId: 'test-plugin',
+          mode: 'native',
+          invocation: { args: ['--session-id', 'from-cli'] },
+          capabilities: {
+            pluginId: 'test-plugin',
+            detectedAt: Date.now(),
+            cached: true,
+            supportsNativeSession: true,
+            supportsNativeStart: true,
+            supportsNativeContinue: true,
+          },
+        })),
+      };
+
+      const nativeServer = createHubServer([TEST_BACKEND], { idleTimeoutMs: 60_000 }, undefined, pluginRuntime as any);
+      const startResult = await callTool(nativeServer, 'hub-session-start', { backend: 'test' });
+      const { sessionId } = JSON.parse(startResult.content[0].text);
+
+      mockInvokeCli.mockResolvedValueOnce({
+        content: 'Session-backed response',
+        success: true,
+        exitCode: 0,
+        durationMs: 60,
+        backend: 'test',
+        model: 'test-model-1',
+      });
+
+      const result = await callTool(nativeServer, 'hub-session-message', {
+        sessionId,
+        message: 'Native message',
+      });
+
+      expect(result.isError).toBeUndefined();
+
+      const listResult = await callTool(nativeServer, 'hub-session-list', {});
+      const sessions = JSON.parse(listResult.content[0].text);
+      const active = sessions.find((session: { sessionId: string }) => session.sessionId === sessionId);
+      expect(active.nativeSessionRef).toBe(sessionId);
+      expect(active.continuityMode).toBe('native');
+    });
   });
 
   describe('hub-session-start with custom sessionId', () => {
@@ -437,7 +764,7 @@ describe('Hub Server Session Tools', () => {
     });
   });
 
-  describe('sessionId on existing backend tools', () => {
+  describe('sessionId on hub-agent', () => {
     it('augments prompt when sessionId is provided', async () => {
       // Start a session
       const startResult = await callTool(server, 'hub-session-start', { backend: 'test' });
@@ -454,7 +781,7 @@ describe('Hub Server Session Tools', () => {
       });
       await callTool(server, 'hub-session-message', { sessionId, message: 'Question 1' });
 
-      // Now use the backend tool directly with sessionId
+      // Now use hub-agent directly with sessionId
       mockInvokeCli.mockResolvedValueOnce({
         content: 'Response 2',
         success: true,
@@ -464,7 +791,7 @@ describe('Hub Server Session Tools', () => {
         model: 'test-model-1',
       });
 
-      const result = await callTool(server, 'test-agent', {
+      const result = await callTool(server, 'hub-agent', {
         prompt: 'Question 2',
         sessionId,
       });
@@ -489,7 +816,8 @@ describe('Hub Server Session Tools', () => {
         model: 'test-model-1',
       });
 
-      const result = await callTool(server, 'test-agent', {
+      const result = await callTool(server, 'hub-agent', {
+        backend: 'test',
         prompt: 'Hello stateless',
       });
 
@@ -500,14 +828,28 @@ describe('Hub Server Session Tools', () => {
       expect(mockInvokeCli.mock.calls[0][1].prompt).toBe('Hello stateless');
     });
 
-    it('returns error for invalid sessionId on backend tool', async () => {
-      const result = await callTool(server, 'test-agent', {
+    it('returns error for invalid sessionId on hub-agent', async () => {
+      const result = await callTool(server, 'hub-agent', {
         prompt: 'test',
         sessionId: 'bad-id',
       });
 
       expect(result.isError).toBe(true);
-      expect(result.content[0].text).toContain('Session error');
+      expect(result.content[0].text).toContain('Session not found');
+    });
+
+    it('returns error for backend mismatch with an existing session', async () => {
+      const startResult = await callTool(server, 'hub-session-start', { backend: 'test' });
+      const { sessionId } = JSON.parse(startResult.content[0].text);
+
+      const result = await callTool(server, 'hub-agent', {
+        backend: 'other',
+        prompt: 'test',
+        sessionId,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Session backend mismatch');
     });
   });
 });

@@ -32,6 +32,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "vitest run --config vitest.config.e2e.ts",
+    "verify:agents": "tsx scripts/verify-agent-params.ts",
+    "check:upstream-versions": "tsx scripts/check-upstream-versions.ts",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
   },

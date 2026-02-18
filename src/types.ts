@@ -25,6 +25,8 @@ export interface BackendConfig {
   timeoutMs: number;
   /** Arg builder strategy */
   argBuilder: 'claude' | 'gemini' | 'codex' | 'opencode' | 'copilot' | 'cursor' | 'generic';
+  /** Optional plugin override */
+  plugin?: string;
 }
 
 /**
@@ -86,4 +88,13 @@ export interface HubConfig {
   session?: import('./session-manager.js').SessionConfig;
   /** Enable file-backed session persistence (default: false) */
   sessionPersistence?: boolean;
+  /** Plugin runtime configuration */
+  plugins?: {
+    /** Plugin module paths to load (ESM import path) */
+    paths?: string[];
+    /** Whether plugin or capability probe failures are fatal */
+    strict?: boolean;
+    /** TTL for cached capability probes (ms) */
+    capabilityCacheTtlMs?: number;
+  };
 }

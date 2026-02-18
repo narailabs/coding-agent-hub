@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Transactional session turns — failed CLI calls no longer leave orphaned user turns in history
 - Semantic session trimming — preserves first and last N turns, removes from the middle with omission markers
 - Backend adapter pattern — pluggable adapters for claude, gemini, codex, and generic backends
+- Plugin runtime — resolves plugins, probes backend continuity capabilities, and applies subcommand/flag strategies per backend
+- Session metadata persistence — sessions now persist `pluginId`, `continuityMode`, and `capabilitySnapshot` when `sessionPersistence` is enabled
 - Stdin-based prompt delivery — avoids OS ARG_MAX limits for large prompts
 - Preflight checks — validates CLI availability and auth config at startup
 - Opt-in file-backed session persistence via `sessionPersistence: true` config
@@ -27,6 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 - Default Codex model changed from `codex-1` to `gpt-5.3-codex-spark`
 - Codex CLI invoked with `--skip-git-repo-check` flag
+- One-shot MCP interface collapsed into a single `hub-agent` tool with a `backend` parameter (replacing per-backend `*-agent` tools)
 
 ## [0.1.0] - 2025-05-15
 

@@ -9,9 +9,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { invokeCli } from './cli-invoker.js';
 import { getAdapter } from './adapters/index.js';
-import type { BackendConfig } from './types.js';
+import type { BackendConfig, ToolInput, ToolResult } from './types.js';
 import { HubSessionManager, type SessionConfig } from './session-manager.js';
 import type { SessionStore } from './session-store.js';
+import { PluginRuntime } from './plugins/index.js';
+import type { PluginCapabilitySnapshot } from './plugins/types.js';
+import { logger } from './logger.js';
 
 /**
  * Build a tool description for a backend.
@@ -30,6 +33,7 @@ export function createHubServer(
   configs: BackendConfig[],
   sessionConfig?: SessionConfig,
   sessionStore?: SessionStore,
+  pluginRuntime: PluginRuntime = new PluginRuntime(),
 ): McpServer {
   const enabledConfigs = configs.filter((c) => c.enabled);
 
@@ -40,91 +44,285 @@ export function createHubServer(
 
   const sessionManager = new HubSessionManager(sessionConfig, sessionStore);
 
-  // Register per-backend agent tools
-  for (const config of enabledConfigs) {
-    server.tool(
-      `${config.name}-agent`,
-      buildToolDescription(config),
-      {
-        prompt: z.string().describe(`The prompt/question to send to ${config.displayName}`),
-        model: z.string().optional().describe(`Model override (default: ${config.defaultModel})`),
-        workingDir: z.string().optional().describe('Working directory for the CLI invocation'),
-        timeoutMs: z.number().optional().describe(`Timeout in milliseconds (default: ${config.timeoutMs})`),
-        sessionId: z.string().optional().describe('Session ID for multi-turn conversation continuity'),
-      },
-      async (args) => {
-        let effectivePrompt = args.prompt;
-        let staged: { turnIndex: number } | undefined;
+  const availableBackends = enabledConfigs.map((c) => c.name).join(', ');
 
-        if (args.sessionId) {
-          try {
-            const result = sessionManager.stageUserTurn(args.sessionId, args.prompt);
-            effectivePrompt = result.prompt;
-            staged = { turnIndex: result.turnIndex };
-          } catch (err) {
-            return {
-              content: [{ type: 'text' as const, text: `Session error: ${err instanceof Error ? err.message : String(err)}` }],
-              isError: true,
-            };
-          }
-        }
+  const safeSessionMetadataUpdate = (
+    sessionId: string,
+    patch: { pluginId: string; mode: 'hub' | 'native'; capabilities: PluginCapabilitySnapshot },
+  ) => {
+    try {
+      sessionManager.updateSessionMetadata(sessionId, {
+        pluginId: patch.pluginId,
+        continuityMode: patch.mode,
+        nativeSessionRef: patch.mode === 'native' ? sessionId : null,
+        capabilitySnapshot: patch.capabilities,
+      });
+      return true;
+    } catch (error) {
+      logger.warn('Session metadata update skipped; session no longer available', {
+        sessionId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  };
 
-        const result = await invokeCli(config, {
-          prompt: effectivePrompt,
-          model: args.model,
-          workingDir: args.workingDir,
-          timeoutMs: args.timeoutMs,
+  const safeTurnCommit = (sessionId: string, turnIndex: number, content: string) => {
+    try {
+      sessionManager.commitTurn(sessionId, turnIndex, content);
+      return true;
+    } catch (error) {
+      logger.warn('Session turn commit skipped; session no longer available', {
+        sessionId,
+        turnIndex,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  };
+
+  const safeTurnRollback = (sessionId: string, turnIndex: number) => {
+    try {
+      sessionManager.rollbackTurn(sessionId, turnIndex);
+      return true;
+    } catch (error) {
+      logger.warn('Session turn rollback skipped; session no longer available', {
+        sessionId,
+        turnIndex,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return false;
+    }
+  };
+
+  async function invokeWithContinuityFallback(params: {
+    config: BackendConfig;
+    input: ToolInput;
+    resolvedModel: string;
+    sessionId?: string;
+    isSessionStart: boolean;
+    mode: 'hub' | 'native';
+  }): Promise<{ result: ToolResult; usedMode: 'hub' | 'native' }> {
+    const run = async (mode: 'hub' | 'native') => {
+      const runtimeInvocation = await pluginRuntime.buildInvocation({
+        config: params.config,
+        input: params.input,
+        resolvedModel: params.resolvedModel,
+        isSessionStart: params.isSessionStart,
+        sessionRef: params.sessionId,
+        mode,
+      });
+
+      const result = await invokeCli(params.config, params.input, {
+        invocation: runtimeInvocation.invocation,
+        plugin: runtimeInvocation.plugin,
+      });
+
+      return { result, usedMode: runtimeInvocation.mode, pluginId: runtimeInvocation.plugin.id, capabilities: runtimeInvocation.capabilities };
+    };
+
+    const first = await run(params.mode);
+
+    const shouldFallback =
+      !!params.sessionId &&
+      first.usedMode === 'native' &&
+      !first.result.success &&
+      pluginRuntime.isNativeFallbackError(first.result);
+
+    if (!shouldFallback || !params.sessionId) {
+      if (params.sessionId) {
+        safeSessionMetadataUpdate(params.sessionId, {
+          pluginId: first.pluginId,
+          mode: first.usedMode,
+          capabilities: first.capabilities,
         });
+      }
 
-        if (args.sessionId && staged) {
-          if (result.success) {
-            sessionManager.commitTurn(args.sessionId, staged.turnIndex, result.content);
-          } else {
-            sessionManager.rollbackTurn(args.sessionId, staged.turnIndex);
-          }
-        }
+      return first;
+    }
 
-        if (result.success) {
-          const metadata = [
-            `Backend: ${result.backend}`,
-            `Model: ${result.model}`,
-            `Duration: ${result.durationMs}ms`,
-          ];
-          if (result.stderr?.trim()) {
-            metadata.push(`Warnings: ${result.stderr.trim().slice(0, 200)}`);
-          }
+    safeSessionMetadataUpdate(params.sessionId, {
+      pluginId: first.pluginId,
+      mode: 'hub',
+      capabilities: first.capabilities,
+    });
 
+    const second = await run('hub');
+    safeSessionMetadataUpdate(params.sessionId, {
+      pluginId: second.pluginId,
+      mode: second.usedMode,
+      capabilities: second.capabilities,
+    });
+
+    return second;
+  }
+
+  // Register a single one-shot tool for all backends.
+  server.tool(
+    'hub-agent',
+    'Invoke a coding agent backend in one shot. Choose backend via the "backend" parameter.',
+    {
+      backend: z.string().optional().describe(`Backend to invoke (enabled: ${availableBackends || 'none'}). Required unless sessionId is provided`),
+      prompt: z.string().describe('The prompt/question to send to the selected backend'),
+      model: z.string().optional().describe('Model override'),
+      workingDir: z.string().optional().describe('Working directory for the CLI invocation'),
+      timeoutMs: z.number().optional().describe('Timeout in milliseconds'),
+      sessionId: z.string().optional().describe('Session ID for multi-turn conversation continuity'),
+    },
+  async (args) => {
+      let config: BackendConfig | undefined;
+      let effectivePrompt = args.prompt;
+      let effectiveModel = args.model;
+      let effectiveWorkingDir = args.workingDir;
+      let staged: { turnIndex: number; isSessionStart: boolean } | undefined;
+      let continuityMode: 'hub' | 'native' = 'hub';
+
+      if (args.sessionId) {
+        const session = sessionManager.getSession(args.sessionId);
+        if (!session) {
           return {
-            content: [
-              {
-                type: 'text' as const,
-                text: `${result.content}\n\n---\n_${metadata.join(' | ')}_`,
-              },
-            ],
+            content: [{ type: 'text' as const, text: `Session not found: ${args.sessionId}` }],
+            isError: true,
           };
         }
 
-        const errorParts = [
-          `Hub invocation failed: ${result.error || 'Unknown error'}`,
-          '',
+        if (args.backend && args.backend !== session.backend) {
+          return {
+            content: [{ type: 'text' as const, text: `Session backend mismatch: session "${args.sessionId}" uses "${session.backend}"` }],
+            isError: true,
+          };
+        }
+
+        config = enabledConfigs.find((c) => c.name === session.backend);
+        if (!config) {
+          return {
+            content: [{ type: 'text' as const, text: `Backend "${session.backend}" is no longer available` }],
+            isError: true,
+          };
+        }
+
+        effectiveModel = (args.model ?? session.model) || undefined;
+        effectiveWorkingDir = args.workingDir ?? session.workingDir;
+        continuityMode = session.continuityMode ?? 'hub';
+
+        try {
+          const result = sessionManager.stageUserTurn(args.sessionId, args.prompt, {
+            includeHistory: continuityMode !== 'native',
+          });
+          effectivePrompt = result.prompt;
+          staged = {
+            turnIndex: result.turnIndex,
+            isSessionStart: result.isSessionStart,
+          };
+        } catch (err) {
+          return {
+            content: [{ type: 'text' as const, text: `Session error: ${err instanceof Error ? err.message : String(err)}` }],
+            isError: true,
+          };
+        }
+      } else {
+        if (!args.backend) {
+          return {
+            content: [{ type: 'text' as const, text: `Missing required argument: backend. Available: ${availableBackends || '(none enabled)'}` }],
+            isError: true,
+          };
+        }
+
+        config = enabledConfigs.find((c) => c.name === args.backend);
+        if (!config) {
+          return {
+            content: [{ type: 'text' as const, text: `Unknown or disabled backend: "${args.backend}". Available: ${availableBackends}` }],
+            isError: true,
+          };
+        }
+      }
+
+      let result;
+      let usedMode: 'hub' | 'native' = continuityMode;
+      const effectiveInput = {
+        prompt: effectivePrompt,
+        model: effectiveModel,
+        workingDir: effectiveWorkingDir,
+        timeoutMs: args.timeoutMs,
+      };
+      try {
+        const resolvedModel = effectiveModel || config.defaultModel;
+        const invocationResult = await invokeWithContinuityFallback({
+          config,
+          input: effectiveInput,
+          resolvedModel,
+          isSessionStart: args.sessionId ? (staged?.isSessionStart ?? false) : false,
+          sessionId: args.sessionId,
+          mode: continuityMode,
+        });
+
+        usedMode = invocationResult.usedMode;
+        result = invocationResult.result;
+      } catch (err) {
+        if (args.sessionId && staged) {
+          safeTurnRollback(args.sessionId, staged.turnIndex);
+        }
+        return {
+          content: [{ type: 'text' as const, text: `Hub invocation failed: ${err instanceof Error ? err.message : String(err)}` }],
+          isError: true,
+        };
+      }
+
+      if (args.sessionId && staged) {
+        if (result.success) {
+          safeTurnCommit(args.sessionId, staged.turnIndex, result.content);
+        } else {
+          safeTurnRollback(args.sessionId, staged.turnIndex);
+        }
+      }
+      if (result.success) {
+        const metadata = [
           `Backend: ${result.backend}`,
-          `Exit code: ${result.exitCode}`,
+          `Model: ${result.model}`,
+          `Duration: ${result.durationMs}ms`,
         ];
-        if (result.errorType) errorParts.push(`Error type: ${result.errorType}`);
-        if (result.retryable) errorParts.push('Retryable: yes');
+        if (result.stderr?.trim()) {
+          metadata.push(`Warnings: ${result.stderr.trim().slice(0, 200)}`);
+        }
+        if (args.sessionId) {
+          metadata.push(`Session: ${args.sessionId}`);
+          metadata.push(`Mode: ${usedMode}`);
+        }
 
         return {
           content: [
             {
               type: 'text' as const,
-              text: errorParts.join('\n'),
+              text: `${result.content}\n\n---\n_${metadata.join(' | ')}_`,
             },
           ],
-          isError: true,
         };
-      },
-    );
-  }
+      }
+
+      const errorParts = [
+        `Hub invocation failed: ${result.error || 'Unknown error'}`,
+        '',
+        `Backend: ${result.backend}`,
+        `Exit code: ${result.exitCode}`,
+      ];
+      if (result.errorType) errorParts.push(`Error type: ${result.errorType}`);
+      if (result.retryable) errorParts.push('Retryable: yes');
+      if (usedMode === 'native') {
+        errorParts.push('Continuity mode: native (attempted)');
+      }
+
+      return {
+        content: [
+          {
+            type: 'text' as const,
+            text: errorParts.join('\n'),
+          },
+        ],
+        isError: true,
+      };
+      
+    },
+  );
 
   // --- Session lifecycle tools ---
 
@@ -148,11 +346,21 @@ export function createHubServer(
       }
 
       let sessionId: string;
+      let continuityMode: 'hub' | 'native' = 'hub';
+      let pluginId: string | undefined;
+      let capabilitySnapshot: PluginCapabilitySnapshot | undefined;
       try {
+        const selection = await pluginRuntime.resolveSessionMetadata(backendConfig);
+        continuityMode = selection.continuityMode;
+        pluginId = selection.plugin.id;
+        capabilitySnapshot = selection.capabilities;
         sessionId = sessionManager.startSession(args.backend, {
           model: args.model,
           workingDir: args.workingDir,
           sessionId: args.sessionId,
+          pluginId,
+          continuityMode,
+          capabilitySnapshot,
         });
       } catch (err) {
         return {
@@ -162,7 +370,18 @@ export function createHubServer(
       }
 
       return {
-        content: [{ type: 'text' as const, text: JSON.stringify({ sessionId, backend: args.backend, model: args.model || backendConfig.defaultModel }) }],
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify({
+              sessionId,
+              backend: args.backend,
+              model: args.model || backendConfig.defaultModel,
+              pluginId,
+              continuityMode,
+            }),
+          },
+        ],
       };
     },
   );
@@ -192,9 +411,11 @@ export function createHubServer(
         };
       }
 
-      let staged: { prompt: string; turnIndex: number };
+      let staged: { prompt: string; turnIndex: number; isSessionStart: boolean };
       try {
-        staged = sessionManager.stageUserTurn(args.sessionId, args.message);
+        staged = sessionManager.stageUserTurn(args.sessionId, args.message, {
+          includeHistory: session.continuityMode !== 'native',
+        });
       } catch (err) {
         return {
           content: [{ type: 'text' as const, text: `Session error: ${err instanceof Error ? err.message : String(err)}` }],
@@ -202,15 +423,34 @@ export function createHubServer(
         };
       }
 
-      const result = await invokeCli(backendConfig, {
-        prompt: staged.prompt,
-        model: session.model || undefined,
-        workingDir: session.workingDir,
-        timeoutMs: args.timeoutMs,
-      });
+      const resolvedModel = session.model || backendConfig.defaultModel;
+      let result;
+      try {
+        const invocationInput = {
+          prompt: staged.prompt,
+          model: resolvedModel,
+          workingDir: session.workingDir,
+          timeoutMs: args.timeoutMs,
+        };
+        const invocationResult = await invokeWithContinuityFallback({
+          config: backendConfig,
+          input: invocationInput,
+          resolvedModel,
+          isSessionStart: staged.isSessionStart,
+          sessionId: args.sessionId,
+          mode: session.continuityMode ?? 'hub',
+        });
+        result = invocationResult.result;
+      } catch (err) {
+        safeTurnRollback(args.sessionId, staged.turnIndex);
+        return {
+          content: [{ type: 'text' as const, text: `Hub invocation failed: ${err instanceof Error ? err.message : String(err)}` }],
+          isError: true,
+        };
+      }
 
       if (result.success) {
-        sessionManager.commitTurn(args.sessionId, staged.turnIndex, result.content);
+        safeTurnCommit(args.sessionId, staged.turnIndex, result.content);
 
         const metadata = [
           `Backend: ${result.backend}`,
@@ -232,7 +472,7 @@ export function createHubServer(
         };
       }
 
-      sessionManager.rollbackTurn(args.sessionId, staged.turnIndex);
+      safeTurnRollback(args.sessionId, staged.turnIndex);
 
       const errorParts = [
         `Hub invocation failed: ${result.error || 'Unknown error'}`,
