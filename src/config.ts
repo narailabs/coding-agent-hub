@@ -61,7 +61,17 @@ export function resolveBackends(
           console.warn(`[coding-agent-hub] Skipping custom backend "${name}": missing required fields: ${missingFields.join(', ')}`);
         } else {
           // Warn about unknown keys
-          const knownKeys = new Set(['name', 'displayName', 'command', 'enabled', 'defaultModel', 'authEnvVar', 'timeoutMs', 'argBuilder']);
+          const knownKeys = new Set([
+            'name',
+            'displayName',
+            'command',
+            'enabled',
+            'defaultModel',
+            'authEnvVar',
+            'timeoutMs',
+            'argBuilder',
+            'plugin',
+          ]);
           const unknownKeys = Object.keys(overrides).filter((k) => !knownKeys.has(k));
           if (unknownKeys.length > 0) {
             console.warn(`[coding-agent-hub] Backend "${name}": unknown config keys ignored: ${unknownKeys.join(', ')}`);
@@ -76,6 +86,7 @@ export function resolveBackends(
             authEnvVar: overrides.authEnvVar,
             timeoutMs: overrides.timeoutMs ?? hubConfig.defaultTimeoutMs ?? 120_000,
             argBuilder: overrides.argBuilder ?? 'generic',
+            plugin: overrides.plugin,
           });
         }
       }

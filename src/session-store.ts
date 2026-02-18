@@ -9,6 +9,8 @@ import { mkdirSync, readFileSync, writeFileSync, unlinkSync, readdirSync } from 
 import { join } from 'node:path';
 import { logger } from './logger.js';
 import type { SessionTurn } from './session-manager.js';
+import type { ContinuityMode } from './plugins/types.js';
+import type { PluginCapabilitySnapshot } from './plugins/types.js';
 
 /**
  * Serialized session data for persistence.
@@ -21,6 +23,10 @@ export interface SerializedSession {
   turns: SessionTurn[];
   createdAt: number;
   lastActiveAt: number;
+  pluginId?: string;
+  continuityMode?: ContinuityMode;
+  nativeSessionRef?: string | null;
+  capabilitySnapshot?: PluginCapabilitySnapshot;
 }
 
 /**

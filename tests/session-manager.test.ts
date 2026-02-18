@@ -41,6 +41,55 @@ describe('HubSessionManager', () => {
       const id2 = manager.startSession('claude');
       expect(id1).not.toBe(id2);
     });
+
+    it('stores continuity metadata', () => {
+      const id = manager.startSession('claude', {
+        model: 'claude-sonnet-4-5',
+        pluginId: 'claude',
+        continuityMode: 'native',
+        nativeSessionRef: 'session-123',
+      });
+      const info = manager.getSession(id)!;
+
+      expect(info.pluginId).toBe('claude');
+      expect(info.continuityMode).toBe('native');
+      expect(info.nativeSessionRef).toBe('session-123');
+      expect(info.capabilitySnapshot).toBeUndefined();
+    });
+
+    it('updates continuity metadata and native session ref via updateSessionMetadata', () => {
+      const id = manager.startSession('claude', {
+        model: 'claude-sonnet-4-5',
+        pluginId: 'legacy',
+        continuityMode: 'hub',
+      });
+
+      manager.updateSessionMetadata(id, {
+        pluginId: 'native-plugin',
+        continuityMode: 'native',
+        nativeSessionRef: 'native-xyz',
+        capabilitySnapshot: {
+          pluginId: 'native-plugin',
+          detectedAt: 1,
+          cached: true,
+          supportsNativeSession: true,
+          supportsNativeStart: true,
+          supportsNativeContinue: true,
+        },
+      });
+
+      const info = manager.getSession(id)!;
+      expect(info.pluginId).toBe('native-plugin');
+      expect(info.continuityMode).toBe('native');
+      expect(info.nativeSessionRef).toBe('native-xyz');
+      expect(info.capabilitySnapshot?.pluginId).toBe('native-plugin');
+      expect(info.turnCount).toBe(0);
+    });
+
+    it('throws when updating metadata for missing session', () => {
+      expect(() => manager.updateSessionMetadata('missing-session', { continuityMode: 'native' }))
+        .toThrow('Session not found');
+    });
   });
 
   describe('buildPrompt', () => {
@@ -318,6 +367,7 @@ describe('HubSessionManager', () => {
 
       expect(staged.prompt).toBe('Hello');
       expect(staged.turnIndex).toBe(0);
+      expect(staged.isSessionStart).toBe(true);
     });
 
     it('staged turn is not counted in turnCount', () => {
@@ -462,6 +512,26 @@ describe('HubSessionManager', () => {
       expect(info!.turnCount).toBe(2);
 
       mgr2.destroy();
+    });
+
+    it('persists plugin and continuity metadata', () => {
+      const mgr1 = new HubSessionManager({ idleTimeoutMs: 60_000 }, store);
+      const id = mgr1.startSession('claude', {
+        model: 'claude-4.5-sonnet',
+        pluginId: 'claude',
+        continuityMode: 'native',
+      });
+
+      const loaded = store.load(id)!;
+      expect(loaded.pluginId).toBe('claude');
+      expect(loaded.continuityMode).toBe('native');
+
+      const mgr2 = new HubSessionManager({ idleTimeoutMs: 60_000 }, store);
+      const info = mgr2.getSession(id);
+      expect(info?.pluginId).toBe('claude');
+      expect(info?.continuityMode).toBe('native');
+      mgr2.destroy();
+      mgr1.destroy();
     });
 
     it('does not load expired sessions', () => {

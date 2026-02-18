@@ -14,6 +14,7 @@ import { loadConfigFile, getDefaultConfigPath, resolveBackends, parseArgs } from
 import { logger } from './logger.js';
 import { runPreflightChecks } from './preflight.js';
 import { FileSessionStore } from './session-store.js';
+import { PluginRuntime } from './plugins/index.js';
 import type { SessionConfig } from './session-manager.js';
 import type { SessionStore } from './session-store.js';
 
@@ -51,7 +52,8 @@ async function main() {
 
   runPreflightChecks(backends);
 
-  const server = createHubServer(backends, sessionConfig, sessionStore);
+  const pluginRuntime = new PluginRuntime(hubConfig?.plugins);
+  const server = createHubServer(backends, sessionConfig, sessionStore, pluginRuntime);
   const transport = new StdioServerTransport();
 
   await server.connect(transport);

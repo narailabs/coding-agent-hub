@@ -76,6 +76,21 @@ describe('createHubServer', () => {
     expect(server).toBeDefined();
   });
 
+  it('registers hub-agent and session tools', () => {
+    const server = createHubServer(DEFAULT_BACKENDS);
+    const tools = (server as any)._registeredTools as Record<string, unknown>;
+
+    expect(tools['hub-agent']).toBeDefined();
+    expect(tools['hub-session-start']).toBeDefined();
+    expect(tools['hub-session-message']).toBeDefined();
+    expect(tools['hub-session-stop']).toBeDefined();
+    expect(tools['hub-session-list']).toBeDefined();
+
+    expect(tools['claude-agent']).toBeUndefined();
+    expect(tools['gemini-agent']).toBeUndefined();
+    expect(tools['codex-agent']).toBeUndefined();
+  });
+
   it('filters out disabled backends', () => {
     const configs = DEFAULT_BACKENDS.map((b) => ({
       ...b,

@@ -15,7 +15,7 @@ MCP server that exposes coding agent CLIs (Claude, Gemini, Codex, OpenCode, Copi
 npx coding-agent-hub
 ```
 
-That's it. Your MCP client now has access to `claude-agent`, `gemini-agent`, `codex-agent`, `opencode-agent`, `copilot-agent`, and `cursor-agent` tools.
+That's it. Your MCP client now has access to `hub-agent` plus session tools (`hub-session-start`, `hub-session-message`, `hub-session-stop`, `hub-session-list`).
 
 ```bash
 # Only enable specific backends
@@ -61,18 +61,13 @@ Each backend requires its CLI to be installed and its API key to be set. The hub
 
 ### One-shot tools
 
-Each backend exposes a `<name>-agent` tool:
+One tool handles all backends:
 
 ```
-claude-agent     — Invoke Claude Code
-gemini-agent     — Invoke Gemini CLI
-codex-agent      — Invoke Codex CLI
-opencode-agent   — Invoke OpenCode
-copilot-agent    — Invoke GitHub Copilot CLI
-cursor-agent     — Invoke Cursor CLI
+hub-agent        — Invoke the selected backend (`claude`, `gemini`, `codex`, `opencode`, `copilot`, `cursor`)
 ```
 
-Parameters: `prompt` (required), `model`, `workingDir`, `timeoutMs`, `sessionId`
+Parameters: `backend` (required unless `sessionId` is provided), `prompt` (required), `model`, `workingDir`, `timeoutMs`, `sessionId`
 
 ### Session tools
 
@@ -117,10 +112,44 @@ hub-session-list    — List active sessions
 | `hub-server.ts` | MCP server, tool registration |
 | `cli-invoker.ts` | Spawns CLI processes, collects output |
 | `adapters/` | Backend-specific arg building and response extraction |
+| `plugins/` | Plugin runtime, capability probing, and continuity strategy |
 | `session-manager.ts` | Multi-turn session state, history trimming |
+| `session-store.ts` | Optional file persistence for active sessions |
 | `config.ts` | File + CLI config loading |
 | `preflight.ts` | Startup CLI/auth validation |
 | `logger.ts` | Structured JSON logging to stderr |
+
+### Plugin system
+
+`coding-agent-hub` uses `PluginRuntime` to decide whether a session should use
+hub-managed history or backend-native continuation. Capabilities are discovered
+from each backend's `--version` and `--help` output and cached for reuse.
+
+- Built-in plugins cover default backends (`claude`, `gemini`, `codex`, `opencode`,
+  `copilot`, `cursor`, `generic`).
+- A backend can pin a plugin explicitly via `backend.plugin`.
+- Custom plugins can be loaded from `plugins.paths` in config.
+- `codex` currently uses `exec resume` for continuation when native mode is active.
+
+Example:
+
+```json
+{
+  "plugins": {
+    "paths": ["./plugins/custom.plugin.mjs"],
+    "strict": false,
+    "capabilityCacheTtlMs": 120000
+  }
+}
+```
+
+### Session persistence
+
+Set `sessionPersistence: true` to keep active sessions on disk:
+
+- Stored under `~/.coding-agent-hub/sessions`
+- Session metadata includes `pluginId`, `continuityMode`, and `capabilitySnapshot`
+- `hub-session-list` returns restored sessions after restart
 
 ## Configuration
 
@@ -147,6 +176,19 @@ Create `~/.coding-agent-hub/config.json`:
 --session-timeout <ms>   Session idle timeout in milliseconds (default: 1800000)
 ```
 
+`plugins` and plugin metadata options are loaded from config only:
+
+```json
+{
+  "sessionPersistence": true,
+  "plugins": {
+    "paths": ["./plugins/custom.plugin.mjs"],
+    "strict": true,
+    "capabilityCacheTtlMs": 120000
+  }
+}
+```
+
 ### Custom backends
 
 Add any CLI as a backend:
@@ -165,6 +207,18 @@ Add any CLI as a backend:
 }
 ```
 
+You can pin a backend to a plugin when needed:
+
+```json
+{
+  "backends": {
+    "codex": {
+      "plugin": "codex"
+    }
+  }
+}
+```
+
 ## Programmatic Usage
 
 ```typescript
@@ -178,11 +232,16 @@ const server = createHubServer(DEFAULT_BACKENDS);
 
 ```bash
 pnpm install
-pnpm test        # Run tests (263 tests)
+pnpm test        # Run all unit tests
 pnpm test:e2e    # Run e2e tests (requires CLIs + auth)
 pnpm typecheck   # Type check
 pnpm build       # Build to dist/
 ```
+
+### Runtime scripts
+
+- `pnpm verify:agents` runs `scripts/verify-agent-params.ts` to probe CLI capabilities and continuity mode compatibility.
+- `pnpm check:upstream-versions` runs `scripts/check-upstream-versions.ts` to report baseline vs published version drift.
 
 ## Contributing
 

@@ -69,6 +69,28 @@ describe('FileSessionStore', () => {
     expect(store.listIds()).toEqual([]);
   });
 
+    it('persists plugin and continuity metadata', () => {
+      store.save('meta', makeSession('meta', {
+        pluginId: 'claude',
+        continuityMode: 'native',
+        nativeSessionRef: 'native-session-1',
+        capabilitySnapshot: {
+          pluginId: 'claude',
+          detectedAt: 1,
+          cached: true,
+          supportsNativeSession: true,
+          supportsNativeStart: true,
+          supportsNativeContinue: true,
+        },
+      }));
+
+      const loaded = store.load('meta')!;
+      expect(loaded.pluginId).toBe('claude');
+      expect(loaded.continuityMode).toBe('native');
+      expect(loaded.nativeSessionRef).toBe('native-session-1');
+      expect(loaded.capabilitySnapshot?.pluginId).toBe('claude');
+    });
+
   it('preserves turns in serialization', () => {
     const session = makeSession('with-turns', {
       turns: [

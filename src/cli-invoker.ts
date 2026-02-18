@@ -9,6 +9,7 @@ import { StdoutCollector } from './message-extractor.js';
 import { getAdapter } from './adapters/index.js';
 import { logger } from './logger.js';
 import type { BackendConfig, ErrorType, ToolInput, ToolResult } from './types.js';
+import type { AgentPlugin, PluginInvocation } from './plugins/types.js';
 
 /** Patterns in stderr that indicate authentication failures. */
 const AUTH_ERROR_PATTERNS = [/401/i, /403/i, /unauthorized/i, /api.?key/i, /authentication/i];
@@ -68,28 +69,39 @@ export function buildEnv(config: BackendConfig): Record<string, string | undefin
 /**
  * Invoke a CLI backend and return the result.
  */
+export interface InvokeCliOptions {
+  invocation?: PluginInvocation;
+  plugin?: AgentPlugin;
+}
+
 export async function invokeCli(
   config: BackendConfig,
   input: ToolInput,
+  options: InvokeCliOptions = {},
 ): Promise<ToolResult> {
   const startTime = Date.now();
   const model = input.model || config.defaultModel;
   const timeoutMs = input.timeoutMs || config.timeoutMs;
   const adapter = getAdapter(config.argBuilder);
+  const parserPlugin = options.plugin;
+  const parser = parserPlugin?.extractResponse ?? adapter.extractResponse;
   const env = buildEnv(config);
 
   // Use stdin delivery when adapter supports it to avoid ARG_MAX limits
   let args: string[];
   let stdinData: string | undefined;
 
-  if (adapter.promptDelivery === 'stdin' && adapter.buildArgsWithoutPrompt) {
+  if (options.invocation) {
+    args = options.invocation.args;
+    stdinData = options.invocation.stdinData;
+  } else if (adapter.promptDelivery === 'stdin' && adapter.buildArgsWithoutPrompt) {
     args = adapter.buildArgsWithoutPrompt(input, model);
     stdinData = input.prompt;
   } else {
     args = adapter.buildArgs(input, model);
   }
 
-  return new Promise<ToolResult>((resolve) => {
+  const invocation = new Promise<ToolResult>((resolve) => {
     const ac = new AbortController();
     const timeout = setTimeout(() => ac.abort(), timeoutMs);
 
@@ -150,7 +162,7 @@ export async function invokeCli(
       logger.info('CLI exited', { backend: config.name, exitCode, durationMs });
 
       const stdout = stdoutCollector.toString();
-      const extracted = adapter.extractResponse(stdout, exitCode);
+      const extracted = parser(stdout, exitCode);
       const stderr = Buffer.concat(stderrChunks).toString('utf-8');
 
       if (extracted && exitCode === 0) {
@@ -197,4 +209,6 @@ export async function invokeCli(
     }
     child.stdin?.end();
   });
+
+  return invocation.then((result) => (parserPlugin?.classifyError ? parserPlugin.classifyError(result) : result));
 }
