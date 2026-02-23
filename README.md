@@ -9,17 +9,52 @@ MCP server that exposes coding agent CLIs (Claude, Gemini, Codex, OpenCode, Copi
 - **No lock-in** — MIT license, 2 runtime dependencies, works with any MCP-compatible client. Swap backends without changing your workflow.
 - **Production ready** — Structured error classification, stdin-based prompt delivery (no ARG_MAX limits), preflight checks, configurable timeouts, and 92%+ test coverage.
 
+## Installation
+
+### As a standalone MCP server (recommended)
+
+No install needed — just run it:
+
+```bash
+npx @narai/coding-agent-hub
+```
+
+### Add to Claude Code
+
+```bash
+claude mcp add --transport stdio coding-agent-hub -- npx -y @narai/coding-agent-hub
+```
+
+### As a global CLI
+
+```bash
+npm install -g @narai/coding-agent-hub
+coding-agent-hub
+```
+
+### As a library dependency
+
+```bash
+npm install @narai/coding-agent-hub
+```
+
+```typescript
+import { createHubServer } from '@narai/coding-agent-hub';
+```
+
+See [Programmatic Usage](#programmatic-usage) below for details.
+
 ## Quick Start
 
 ```bash
-npx coding-agent-hub
+npx @narai/coding-agent-hub
 ```
 
 That's it. Your MCP client now has access to `hub-agent` plus session tools (`hub-session-start`, `hub-session-message`, `hub-session-stop`, `hub-session-list`).
 
 ```bash
 # Only enable specific backends
-npx coding-agent-hub --backends gemini,codex
+npx @narai/coding-agent-hub --backends gemini,codex
 ```
 
 ## MCP Client Integration
@@ -34,7 +69,7 @@ Add to `.mcp.json` in your project root:
     "coding-agent-hub": {
       "type": "stdio",
       "command": "npx",
-      "args": ["coding-agent-hub"]
+      "args": ["-y", "@narai/coding-agent-hub"]
     }
   }
 }
@@ -42,7 +77,7 @@ Add to `.mcp.json` in your project root:
 
 ### Other MCP Clients
 
-Any client that supports the MCP stdio transport can use coding-agent-hub. Point it at `npx coding-agent-hub` as the server command.
+Any client that supports the MCP stdio transport can use coding-agent-hub. Point it at `npx @narai/coding-agent-hub` as the server command.
 
 ## Supported Backends
 
@@ -222,8 +257,8 @@ You can pin a backend to a plugin when needed:
 ## Programmatic Usage
 
 ```typescript
-import { createHubServer } from 'coding-agent-hub';
-import { DEFAULT_BACKENDS } from 'coding-agent-hub/backends';
+import { createHubServer } from '@narai/coding-agent-hub';
+import { DEFAULT_BACKENDS } from '@narai/coding-agent-hub/backends';
 
 const server = createHubServer(DEFAULT_BACKENDS);
 ```
