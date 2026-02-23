@@ -1,6 +1,6 @@
 {
   "name": "coding-agent-hub",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "MCP server hub for coding agent CLIs — invoke Claude, Gemini, or Codex from any MCP client",
   "type": "module",
   "bin": {
@@ -56,7 +56,16 @@
     "coding-agent",
     "ai"
   ],
+  "author": "Narai Labs",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/narailabs/coding-agent-hub.git"
+  },
+  "homepage": "https://github.com/narailabs/coding-agent-hub#readme",
+  "bugs": {
+    "url": "https://github.com/narailabs/coding-agent-hub/issues"
+  },
   "files": [
     "dist",
     "README.md"
