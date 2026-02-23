@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-02-23
+
 ### Added
 - OpenCode backend adapter — multi-provider coding agent with JSON response extraction
 - Copilot CLI backend adapter — GitHub Copilot with ANSI code stripping

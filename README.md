@@ -9,6 +9,35 @@ MCP server that exposes coding agent CLIs (Claude, Gemini, Codex, OpenCode, Copi
 - **No lock-in** — MIT license, 2 runtime dependencies, works with any MCP-compatible client. Swap backends without changing your workflow.
 - **Production ready** — Structured error classification, stdin-based prompt delivery (no ARG_MAX limits), preflight checks, configurable timeouts, and 92%+ test coverage.
 
+## Installation
+
+### As a standalone MCP server (recommended)
+
+No install needed — just run it:
+
+```bash
+npx coding-agent-hub
+```
+
+### As a global CLI
+
+```bash
+npm install -g coding-agent-hub
+coding-agent-hub
+```
+
+### As a library dependency
+
+```bash
+npm install coding-agent-hub
+```
+
+```typescript
+import { createHubServer } from 'coding-agent-hub';
+```
+
+See [Programmatic Usage](#programmatic-usage) below for details.
+
 ## Quick Start
 
 ```bash
