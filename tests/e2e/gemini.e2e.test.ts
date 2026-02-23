@@ -4,12 +4,12 @@ import { invokeCli } from '../../src/cli-invoker.js';
 import { getDefaultBackend } from '../../src/backends.js';
 import type { BackendConfig } from '../../src/types.js';
 
-const skipReason = skipUnless('copilot', 'GITHUB_TOKEN');
-const config = getDefaultBackend('copilot') as BackendConfig;
+const skipReason = skipUnless('gemini', 'GEMINI_API_KEY');
+const config = getDefaultBackend('gemini') as BackendConfig;
 
 const run = skipReason ? describe.skip : describe;
 
-run('Copilot CLI E2E', () => {
+run('Gemini CLI E2E', () => {
   it('returns a correct response for a math prompt', async () => {
     const result = await invokeCli(config, {
       prompt: 'What is 2+2? Reply with just the number.',
@@ -18,7 +18,7 @@ run('Copilot CLI E2E', () => {
 
     expect(result.success).toBe(true);
     expect(result.exitCode).toBe(0);
-    expect(result.backend).toBe('copilot');
+    expect(result.backend).toBe('gemini');
     expect(result.durationMs).toBeGreaterThan(0);
     assertContentQuality(result.content);
     assertMathResponse(result.content);
