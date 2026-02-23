@@ -54,14 +54,10 @@ export class OpenCodeAdapter implements BackendAdapter {
     }
 
     // Plain text fallback
-    if (trimmed) {
-      return {
-        content: trimmed,
-        metadata: { extractedFromStdout: true, jsonFormat: 'plaintext', exitCode },
-      };
-    }
-
-    return null;
+    return {
+      content: trimmed,
+      metadata: { extractedFromStdout: true, jsonFormat: 'plaintext', exitCode },
+    };
   }
 
   buildDescription(config: BackendConfig): string {

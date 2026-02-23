@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createHubServer } from '../src/hub-server.js';
 import type { BackendConfig } from '../src/types.js';
+import { HubSessionManager } from '../src/session-manager.js';
 import { FileSessionStore } from '../src/session-store.js';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -442,6 +443,101 @@ describe('Hub Server Session Tools', () => {
       const callPrompt = mockInvokeCli.mock.calls[1][1].prompt;
       expect(callPrompt).not.toContain('will fail');
       expect(callPrompt).toBe('after failure');
+    });
+  });
+
+  describe('hub-session-message stageUserTurn exception', () => {
+    it('returns session error when stageUserTurn throws in hub-session-message', async () => {
+      const startResult = await callTool(server, 'hub-session-start', { backend: 'test' });
+      const { sessionId } = JSON.parse(startResult.content[0].text);
+
+      // Spy on stageUserTurn to throw after getSession succeeds (hits line 420)
+      const spy = vi.spyOn(HubSessionManager.prototype, 'stageUserTurn')
+        .mockImplementationOnce(() => { throw new Error('Simulated stage failure'); });
+
+      const result = await callTool(server, 'hub-session-message', {
+        sessionId,
+        message: 'test',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Session error');
+      expect(result.content[0].text).toContain('Simulated stage failure');
+      spy.mockRestore();
+    });
+  });
+
+  describe('hub-agent invokeWithContinuityFallback exception with rollback', () => {
+    it('rolls back staged turn and returns error when invocation throws', async () => {
+      const startResult = await callTool(server, 'hub-session-start', { backend: 'test' });
+      const { sessionId } = JSON.parse(startResult.content[0].text);
+
+      // Make invokeCli reject with an exception (not a failed result, but a thrown error)
+      mockInvokeCli.mockRejectedValueOnce(new Error('Unexpected spawn failure'));
+
+      const result = await callTool(server, 'hub-agent', {
+        prompt: 'will throw',
+        sessionId,
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Hub invocation failed');
+      expect(result.content[0].text).toContain('Unexpected spawn failure');
+
+      // Verify the failed turn was rolled back — next message should not include it in history
+      mockInvokeCli.mockResolvedValueOnce({
+        content: 'Recovery response',
+        success: true,
+        exitCode: 0,
+        durationMs: 100,
+        backend: 'test',
+        model: 'test-model-1',
+      });
+
+      await callTool(server, 'hub-session-message', {
+        sessionId,
+        message: 'after throw',
+      });
+
+      const callPrompt = mockInvokeCli.mock.calls[1][1].prompt;
+      expect(callPrompt).not.toContain('will throw');
+      expect(callPrompt).toBe('after throw');
+    });
+
+    it('rolls back staged turn and returns error when hub-session-message invocation throws', async () => {
+      const startResult = await callTool(server, 'hub-session-start', { backend: 'test' });
+      const { sessionId } = JSON.parse(startResult.content[0].text);
+
+      // Make invokeCli reject with an exception on the session-message path (lines 444-449)
+      mockInvokeCli.mockRejectedValueOnce(new Error('Network failure'));
+
+      const result = await callTool(server, 'hub-session-message', {
+        sessionId,
+        message: 'will fail with exception',
+      });
+
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('Hub invocation failed');
+      expect(result.content[0].text).toContain('Network failure');
+
+      // Verify the failed turn was rolled back
+      mockInvokeCli.mockResolvedValueOnce({
+        content: 'After exception',
+        success: true,
+        exitCode: 0,
+        durationMs: 50,
+        backend: 'test',
+        model: 'test-model-1',
+      });
+
+      await callTool(server, 'hub-session-message', {
+        sessionId,
+        message: 'recovery message',
+      });
+
+      const recoveryPrompt = mockInvokeCli.mock.calls[1][1].prompt;
+      expect(recoveryPrompt).not.toContain('will fail with exception');
+      expect(recoveryPrompt).toBe('recovery message');
     });
   });
 

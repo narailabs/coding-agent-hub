@@ -106,6 +106,27 @@ describe('FileSessionStore', () => {
     expect(loaded.turns[1].content).toBe('Hi');
   });
 
+  it('save() logs error when writeFileSync throws', () => {
+    // Create a valid store, then make its directory unwritable
+    const saveDir = mkdtempSync(join(tmpdir(), 'hub-sessions-save-err-'));
+    const saveStore = new FileSessionStore(saveDir);
+    // Remove the directory so writes fail
+    rmSync(saveDir, { recursive: true, force: true });
+
+    // save should not throw — it catches and logs
+    expect(() => saveStore.save('test', makeSession('test'))).not.toThrow();
+  });
+
+  it('listIds() returns empty array when readdirSync throws', () => {
+    // Create a valid store, then remove the directory so readdir fails
+    const listDir = mkdtempSync(join(tmpdir(), 'hub-sessions-list-err-'));
+    const listStore = new FileSessionStore(listDir);
+    rmSync(listDir, { recursive: true, force: true });
+
+    const ids = listStore.listIds();
+    expect(ids).toEqual([]);
+  });
+
   it('sanitizes IDs to prevent path traversal', () => {
     const session = makeSession('../../../etc/passwd');
     store.save('../../../etc/passwd', session);

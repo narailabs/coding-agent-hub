@@ -636,6 +636,39 @@ describe('CursorAdapter', () => {
       expect(result!.content).toBe(json);
       expect(result!.metadata?.jsonFormat).toBe('plaintext');
     });
+
+    it('falls back to plain text for NDJSON with numeric content field', () => {
+      const ndjson = [
+        JSON.stringify({ content: 42 }),
+        JSON.stringify({ message: 100 }),
+      ].join('\n');
+      const result = adapter.extractResponse(ndjson, 0);
+      expect(result).not.toBeNull();
+      expect(result!.metadata?.jsonFormat).toBe('plaintext');
+      expect(result!.content).toBe(ndjson);
+    });
+
+    it('falls back to plain text for NDJSON with null content field', () => {
+      const ndjson = [
+        JSON.stringify({ content: null }),
+        JSON.stringify({ message: null }),
+      ].join('\n');
+      const result = adapter.extractResponse(ndjson, 0);
+      expect(result).not.toBeNull();
+      expect(result!.metadata?.jsonFormat).toBe('plaintext');
+      expect(result!.content).toBe(ndjson);
+    });
+
+    it('falls back to plain text for NDJSON with object content field', () => {
+      const ndjson = [
+        JSON.stringify({ content: { nested: 'value' } }),
+        JSON.stringify({ message: { deeply: { nested: true } } }),
+      ].join('\n');
+      const result = adapter.extractResponse(ndjson, 0);
+      expect(result).not.toBeNull();
+      expect(result!.metadata?.jsonFormat).toBe('plaintext');
+      expect(result!.content).toBe(ndjson);
+    });
   });
 
   describe('buildArgs', () => {

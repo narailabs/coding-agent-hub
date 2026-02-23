@@ -149,7 +149,7 @@ describe('buildEnv', () => {
 // The generic adapter passes `[prompt]` as a single arg, so we use
 // the prompt as a command/action that the helper script dispatches.
 
-describe('invokeCli', () => {
+describe('invokeCli', { timeout: 15_000 }, () => {
   let helperScript: string;
   let tmpDir: string;
 

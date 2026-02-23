@@ -432,6 +432,69 @@ describe('HubSessionManager', () => {
     });
   });
 
+  describe('commitTurn with out-of-bounds turnIndex', () => {
+    it('throws for turnIndex beyond array length', () => {
+      const id = manager.startSession('claude');
+      expect(() => manager.commitTurn(id, 999, 'response')).toThrow('No pending turn at index 999');
+    });
+
+    it('throws for negative turnIndex', () => {
+      const id = manager.startSession('claude');
+      expect(() => manager.commitTurn(id, -1, 'response')).toThrow('No pending turn at index -1');
+    });
+  });
+
+  describe('commitTurn with non-existent session', () => {
+    it('throws Session not found for unknown sessionId', () => {
+      expect(() => manager.commitTurn('no-such-session', 0, 'response'))
+        .toThrow('Session not found: no-such-session');
+    });
+  });
+
+  describe('rollbackTurn with out-of-bounds turnIndex', () => {
+    it('throws for turnIndex beyond array length', () => {
+      const id = manager.startSession('claude');
+      expect(() => manager.rollbackTurn(id, 999)).toThrow('No pending turn at index 999');
+    });
+
+    it('throws for negative turnIndex', () => {
+      const id = manager.startSession('claude');
+      expect(() => manager.rollbackTurn(id, -1)).toThrow('No pending turn at index -1');
+    });
+  });
+
+  describe('rollbackTurn with non-existent session', () => {
+    it('throws Session not found for unknown sessionId', () => {
+      expect(() => manager.rollbackTurn('no-such-session', 0))
+        .toThrow('Session not found: no-such-session');
+    });
+  });
+
+  describe('trimHistory with many turns and low maxContextTurns', () => {
+    it('trims correctly when maxContextTurns is very low', () => {
+      const mgr = new HubSessionManager({
+        maxContextTurns: 2,
+        maxContextChars: 1_000_000,
+        idleTimeoutMs: 60_000,
+      });
+
+      const id = mgr.startSession('claude');
+
+      const s1 = mgr.stageUserTurn(id, 'Q1');
+      mgr.commitTurn(id, s1.turnIndex, 'A1');
+
+      const s2 = mgr.stageUserTurn(id, 'Q2');
+      mgr.commitTurn(id, s2.turnIndex, 'A2');
+
+      // 4 committed turns > maxContextTurns (2), triggers trimming
+      const staged = mgr.stageUserTurn(id, 'Q3');
+      expect(staged.prompt).toContain('Q1'); // first turn preserved
+      expect(staged.prompt).toContain('Q3');
+
+      mgr.destroy();
+    });
+  });
+
   describe('prompt format', () => {
     it('produces the expected XML context block format', () => {
       const id = manager.startSession('claude');

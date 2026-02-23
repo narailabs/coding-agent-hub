@@ -61,6 +61,20 @@ describe('extractMessageContent', () => {
     expect(result).not.toBeNull();
     expect(result!.metadata?.jsonFormat).toBe('plaintext');
   });
+
+  it('returns null when session_id JSON is stripped and nothing remains', () => {
+    const sessionJson = '{"session_id": "abc-123", "status": "ok"}';
+    const result = extractMessageContent(sessionJson);
+    expect(result).toBeNull();
+  });
+
+  it('returns null when cleaned text is under 10 chars after stripping', () => {
+    // This input is >= 10 chars total but after the cleaning regex
+    // removes session_id JSON, the result is empty
+    const input = '  {"session_id": "xyz-456", "data": "val"}  ';
+    const result = extractMessageContent(input);
+    expect(result).toBeNull();
+  });
 });
 
 describe('StdoutCollector', () => {

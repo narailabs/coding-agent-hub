@@ -61,6 +61,27 @@ describe('checkBackend', () => {
 });
 
 describe('runPreflightChecks', () => {
+  it('produces warnings for backends with missing CLI and auth', () => {
+    delete process.env.MISSING_PREFLIGHT_AUTH;
+
+    const configs = [
+      makeConfig({
+        name: 'warn-backend',
+        command: 'totally-nonexistent-binary-xyz',
+        authEnvVar: 'MISSING_PREFLIGHT_AUTH',
+      }),
+    ];
+
+    const results = runPreflightChecks(configs);
+    expect(results).toHaveLength(1);
+    expect(results[0].backend).toBe('warn-backend');
+    expect(results[0].cliFound).toBe(false);
+    expect(results[0].authConfigured).toBe(false);
+    expect(results[0].warnings).toHaveLength(2);
+    expect(results[0].warnings).toContainEqual(expect.stringContaining('not found'));
+    expect(results[0].warnings).toContainEqual(expect.stringContaining('MISSING_PREFLIGHT_AUTH'));
+  });
+
   it('only checks enabled backends', () => {
     const configs = [
       makeConfig({ name: 'enabled', enabled: true, command: 'node' }),
