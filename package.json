@@ -1,5 +1,5 @@
 {
-  "name": "coding-agent-hub",
+  "name": "@narai/coding-agent-hub",
   "version": "0.2.0",
   "description": "MCP server hub for coding agent CLIs — invoke Claude, Gemini, or Codex from any MCP client",
   "type": "module",
