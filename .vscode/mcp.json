@@ -1,0 +1,9 @@
+{
+  "servers": {
+    "coding-agent-hub": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["${workspaceFolder}/dist/index.js"]
+    }
+  }
+}

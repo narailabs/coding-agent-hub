@@ -1,0 +1,12 @@
+{
+  "chat.mcp.discovery.enabled": true,
+  "mcp": {
+    "servers": {
+      "coding-agent-hub": {
+        "type": "stdio",
+        "command": "node",
+        "args": ["${workspaceFolder}/dist/index.js"]
+      }
+    }
+  }
+}
