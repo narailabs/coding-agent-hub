@@ -64,6 +64,8 @@ export interface ToolResult {
   backend: string;
   /** Which model was used */
   model: string;
+  /** Model identifier reported by the CLI at runtime, if available */
+  runtimeModel?: string;
   /** Error message if failed */
   error?: string;
   /** Classification of the error */

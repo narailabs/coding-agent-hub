@@ -17,6 +17,29 @@ import type { PluginCapabilitySnapshot } from './plugins/types.js';
 import { logger } from './logger.js';
 
 /**
+ * Derive the model maker (company name) from a model identifier string.
+ */
+function deriveModelMaker(model: string): string {
+  const lower = model.toLowerCase();
+  if (lower.startsWith('claude')) return 'Anthropic';
+  if (lower.startsWith('gemini')) return 'Google';
+  if (lower.startsWith('gpt') || lower.startsWith('o1') || lower.startsWith('o3') || lower.startsWith('o4')) return 'OpenAI';
+  if (lower.startsWith('llama')) return 'Meta';
+  if (lower.startsWith('mistral') || lower.startsWith('codestral')) return 'Mistral';
+  if (lower.startsWith('deepseek')) return 'DeepSeek';
+  return 'Unknown';
+}
+
+/**
+ * Build the "Agent Started" banner from runtime model info.
+ */
+function buildAgentStartedBanner(runtimeModel: string | undefined, fallbackModel: string): string {
+  const model = runtimeModel || fallbackModel;
+  const maker = deriveModelMaker(model);
+  return `Agent Started\n${maker} - ${model}`;
+}
+
+/**
  * Build a tool description for a backend.
  * Delegates to the backend's adapter for backend-specific descriptions.
  */
@@ -276,9 +299,10 @@ export function createHubServer(
         }
       }
       if (result.success) {
+        const banner = buildAgentStartedBanner(result.runtimeModel, result.model);
         const metadata = [
           `Backend: ${result.backend}`,
-          `Model: ${result.model}`,
+          `Model: ${result.runtimeModel || result.model}`,
           `Duration: ${result.durationMs}ms`,
         ];
         if (result.stderr?.trim()) {
@@ -293,7 +317,7 @@ export function createHubServer(
           content: [
             {
               type: 'text' as const,
-              text: `${result.content}\n\n---\n_${metadata.join(' | ')}_`,
+              text: `${banner}\n\n${result.content}\n\n---\n_${metadata.join(' | ')}_`,
             },
           ],
         };
@@ -369,17 +393,19 @@ export function createHubServer(
         };
       }
 
+      const sessionModel = args.model || backendConfig.defaultModel;
+      const banner = buildAgentStartedBanner(undefined, sessionModel);
       return {
         content: [
           {
             type: 'text' as const,
-            text: JSON.stringify({
+            text: `${banner}\n\n${JSON.stringify({
               sessionId,
               backend: args.backend,
-              model: args.model || backendConfig.defaultModel,
+              model: sessionModel,
               pluginId,
               continuityMode,
-            }),
+            })}`,
           },
         ],
       };

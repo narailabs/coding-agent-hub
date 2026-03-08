@@ -16,6 +16,8 @@ const MAX_BUFFER_SIZE = 5 * 1024 * 1024;
 export interface ExtractedMessage {
   content: string;
   metadata?: Record<string, unknown>;
+  /** Model identifier reported by the CLI at runtime (e.g. "claude-sonnet-4-6"). */
+  runtimeModel?: string;
 }
 
 /**

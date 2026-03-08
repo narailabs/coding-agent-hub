@@ -15,7 +15,7 @@ export class ClaudeAdapter implements BackendAdapter {
       '--model',
       model,
       '--output-format',
-      'text',
+      'json',
       input.prompt,
     ];
   }
@@ -26,19 +26,42 @@ export class ClaudeAdapter implements BackendAdapter {
       '--model',
       model,
       '--output-format',
-      'text',
+      'json',
       '-',  // Claude reads from stdin when prompt is '-'
     ];
   }
 
-  extractResponse(stdout: string, _exitCode: number | null): ExtractedMessage | null {
+  extractResponse(stdout: string, exitCode: number | null): ExtractedMessage | null {
     const trimmed = stdout.trim();
     if (!trimmed) return null;
 
-    // Claude --print --output-format text returns plain text
+    // Claude --print --output-format json returns JSON with result and model fields
+    try {
+      const startIdx = trimmed.indexOf('{');
+      const endIdx = trimmed.lastIndexOf('}');
+      if (startIdx !== -1 && endIdx > startIdx) {
+        const parsed = JSON.parse(trimmed.slice(startIdx, endIdx + 1));
+        const content = parsed.result || parsed.content;
+        if (content && typeof content === 'string') {
+          return {
+            content,
+            runtimeModel: typeof parsed.model === 'string' ? parsed.model : undefined,
+            metadata: {
+              extractedFromStdout: true,
+              jsonFormat: 'claude',
+              exitCode,
+            },
+          };
+        }
+      }
+    } catch {
+      // Fall through to plain text
+    }
+
+    // Plain text fallback
     return {
       content: trimmed,
-      metadata: { extractedFromStdout: true, jsonFormat: 'plaintext' },
+      metadata: { extractedFromStdout: true, jsonFormat: 'plaintext', exitCode },
     };
   }
 

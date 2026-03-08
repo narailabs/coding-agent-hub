@@ -41,6 +41,7 @@ export class OpenCodeAdapter implements BackendAdapter {
         if (content && typeof content === 'string') {
           return {
             content,
+            runtimeModel: typeof parsed.model === 'string' ? parsed.model : undefined,
             metadata: {
               extractedFromStdout: true,
               jsonFormat: 'opencode',

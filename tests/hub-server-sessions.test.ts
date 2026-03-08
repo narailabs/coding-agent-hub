@@ -49,6 +49,16 @@ async function callTool(server: ReturnType<typeof createHubServer>, toolName: st
   return handler(args);
 }
 
+/**
+ * Parse session-start response text, which now has an "Agent Started" banner
+ * prepended before the JSON payload.
+ */
+function parseSessionStartJson(text: string): Record<string, unknown> {
+  const jsonStart = text.indexOf('{');
+  if (jsonStart === -1) throw new Error(`No JSON found in response: ${text}`);
+  return JSON.parse(text.slice(jsonStart));
+}
+
 describe('Hub Server Session Tools', () => {
   let server: ReturnType<typeof createHubServer>;
 
@@ -64,7 +74,8 @@ describe('Hub Server Session Tools', () => {
       });
 
       expect(result.isError).toBeUndefined();
-      const data = JSON.parse(result.content[0].text);
+      expect(result.content[0].text).toContain('Agent Started');
+      const data = parseSessionStartJson(result.content[0].text);
       expect(data.sessionId).toBeDefined();
       expect(data.backend).toBe('test');
       expect(data.model).toBe('test-model-1');
@@ -87,7 +98,7 @@ describe('Hub Server Session Tools', () => {
         workingDir: '/custom/dir',
       });
 
-      const data = JSON.parse(result.content[0].text);
+      const data = parseSessionStartJson(result.content[0].text);
       expect(data.sessionId).toBeDefined();
       expect(data.model).toBe('custom-model');
     });
@@ -115,7 +126,7 @@ describe('Hub Server Session Tools', () => {
       });
 
       expect(result.isError).toBeUndefined();
-      const data = JSON.parse(result.content[0].text);
+      const data = parseSessionStartJson(result.content[0].text);
       expect(data.pluginId).toBe('test-plugin');
       expect(data.continuityMode).toBe('native');
       expect(pluginRuntime.resolveSessionMetadata).toHaveBeenCalled();
@@ -152,7 +163,7 @@ describe('Hub Server Session Tools', () => {
           backend: 'test',
           sessionId: 'persisted-session',
         });
-        const { sessionId, pluginId, continuityMode } = JSON.parse(startResult.content[0].text);
+        const { sessionId, pluginId, continuityMode } = parseSessionStartJson(startResult.content[0].text);
         expect(sessionId).toBe('persisted-session');
         expect(pluginId).toBe('test-plugin');
         expect(continuityMode).toBe('native');
@@ -186,7 +197,7 @@ describe('Hub Server Session Tools', () => {
     it('sends a message in a session with context', async () => {
       // Start session
       const startResult = await callTool(server, 'hub-session-start', { backend: 'test' });
-      const { sessionId } = JSON.parse(startResult.content[0].text);
+      const { sessionId } = parseSessionStartJson(startResult.content[0].text);
 
       // Mock CLI response for first message
       mockInvokeCli.mockResolvedValueOnce({
@@ -249,7 +260,7 @@ describe('Hub Server Session Tools', () => {
 
     it('handles CLI failure without recording response', async () => {
       const startResult = await callTool(server, 'hub-session-start', { backend: 'test' });
-      const { sessionId } = JSON.parse(startResult.content[0].text);
+      const { sessionId } = parseSessionStartJson(startResult.content[0].text);
 
       mockInvokeCli.mockResolvedValueOnce({
         content: '',
@@ -274,7 +285,7 @@ describe('Hub Server Session Tools', () => {
   describe('hub-session-stop', () => {
     it('stops an existing session', async () => {
       const startResult = await callTool(server, 'hub-session-start', { backend: 'test' });
-      const { sessionId } = JSON.parse(startResult.content[0].text);
+      const { sessionId } = parseSessionStartJson(startResult.content[0].text);
 
       const result = await callTool(server, 'hub-session-stop', { sessionId });
       expect(result.isError).toBeUndefined();
@@ -403,7 +414,7 @@ describe('Hub Server Session Tools', () => {
 
     it('rolls back session turn on CLI failure via hub-agent', async () => {
       const startResult = await callTool(server, 'hub-session-start', { backend: 'test' });
-      const { sessionId } = JSON.parse(startResult.content[0].text);
+      const { sessionId } = parseSessionStartJson(startResult.content[0].text);
 
       mockInvokeCli.mockResolvedValueOnce({
         content: '',
@@ -449,7 +460,7 @@ describe('Hub Server Session Tools', () => {
   describe('hub-session-message stageUserTurn exception', () => {
     it('returns session error when stageUserTurn throws in hub-session-message', async () => {
       const startResult = await callTool(server, 'hub-session-start', { backend: 'test' });
-      const { sessionId } = JSON.parse(startResult.content[0].text);
+      const { sessionId } = parseSessionStartJson(startResult.content[0].text);
 
       // Spy on stageUserTurn to throw after getSession succeeds (hits line 420)
       const spy = vi.spyOn(HubSessionManager.prototype, 'stageUserTurn')
@@ -470,7 +481,7 @@ describe('Hub Server Session Tools', () => {
   describe('hub-agent invokeWithContinuityFallback exception with rollback', () => {
     it('rolls back staged turn and returns error when invocation throws', async () => {
       const startResult = await callTool(server, 'hub-session-start', { backend: 'test' });
-      const { sessionId } = JSON.parse(startResult.content[0].text);
+      const { sessionId } = parseSessionStartJson(startResult.content[0].text);
 
       // Make invokeCli reject with an exception (not a failed result, but a thrown error)
       mockInvokeCli.mockRejectedValueOnce(new Error('Unexpected spawn failure'));
@@ -506,7 +517,7 @@ describe('Hub Server Session Tools', () => {
 
     it('rolls back staged turn and returns error when hub-session-message invocation throws', async () => {
       const startResult = await callTool(server, 'hub-session-start', { backend: 'test' });
-      const { sessionId } = JSON.parse(startResult.content[0].text);
+      const { sessionId } = parseSessionStartJson(startResult.content[0].text);
 
       // Make invokeCli reject with an exception on the session-message path (lines 444-449)
       mockInvokeCli.mockRejectedValueOnce(new Error('Network failure'));
@@ -544,7 +555,7 @@ describe('Hub Server Session Tools', () => {
   describe('hub-session-message error details', () => {
     it('includes errorType and retryable in session message failure', async () => {
       const startResult = await callTool(server, 'hub-session-start', { backend: 'test' });
-      const { sessionId } = JSON.parse(startResult.content[0].text);
+      const { sessionId } = parseSessionStartJson(startResult.content[0].text);
 
       mockInvokeCli.mockResolvedValueOnce({
         content: 'error output',
@@ -570,7 +581,7 @@ describe('Hub Server Session Tools', () => {
 
     it('includes stderr warnings in session message success metadata', async () => {
       const startResult = await callTool(server, 'hub-session-start', { backend: 'test' });
-      const { sessionId } = JSON.parse(startResult.content[0].text);
+      const { sessionId } = parseSessionStartJson(startResult.content[0].text);
 
       mockInvokeCli.mockResolvedValueOnce({
         content: 'Good response',
@@ -595,7 +606,7 @@ describe('Hub Server Session Tools', () => {
 
     it('includes retryable flag for exit errors in session message', async () => {
       const startResult = await callTool(server, 'hub-session-start', { backend: 'test' });
-      const { sessionId } = JSON.parse(startResult.content[0].text);
+      const { sessionId } = parseSessionStartJson(startResult.content[0].text);
 
       mockInvokeCli.mockResolvedValueOnce({
         content: '',
@@ -652,7 +663,7 @@ describe('Hub Server Session Tools', () => {
       const nativeServer = createHubServer([TEST_BACKEND], { idleTimeoutMs: 60_000 }, undefined, pluginRuntime as any);
 
       const startResult = await callTool(nativeServer, 'hub-session-start', { backend: 'test' });
-      const { sessionId } = JSON.parse(startResult.content[0].text);
+      const { sessionId } = parseSessionStartJson(startResult.content[0].text);
 
       mockInvokeCli.mockResolvedValueOnce({
         content: 'First response',
@@ -735,7 +746,7 @@ describe('Hub Server Session Tools', () => {
 
       const nativeServer = createHubServer([TEST_BACKEND], { idleTimeoutMs: 60_000 }, undefined, pluginRuntime as any);
       const startResult = await callTool(nativeServer, 'hub-session-start', { backend: 'test' });
-      const { sessionId } = JSON.parse(startResult.content[0].text);
+      const { sessionId } = parseSessionStartJson(startResult.content[0].text);
 
       mockInvokeCli.mockResolvedValueOnce({
         content: '',
@@ -806,7 +817,7 @@ describe('Hub Server Session Tools', () => {
 
       const nativeServer = createHubServer([TEST_BACKEND], { idleTimeoutMs: 60_000 }, undefined, pluginRuntime as any);
       const startResult = await callTool(nativeServer, 'hub-session-start', { backend: 'test' });
-      const { sessionId } = JSON.parse(startResult.content[0].text);
+      const { sessionId } = parseSessionStartJson(startResult.content[0].text);
 
       mockInvokeCli.mockResolvedValueOnce({
         content: 'Session-backed response',
@@ -840,7 +851,7 @@ describe('Hub Server Session Tools', () => {
       });
 
       expect(result.isError).toBeUndefined();
-      const data = JSON.parse(result.content[0].text);
+      const data = parseSessionStartJson(result.content[0].text);
       expect(data.sessionId).toBe('my-custom-id');
     });
 
@@ -864,7 +875,7 @@ describe('Hub Server Session Tools', () => {
     it('augments prompt when sessionId is provided', async () => {
       // Start a session
       const startResult = await callTool(server, 'hub-session-start', { backend: 'test' });
-      const { sessionId } = JSON.parse(startResult.content[0].text);
+      const { sessionId } = parseSessionStartJson(startResult.content[0].text);
 
       // First call via hub-session-message to establish history
       mockInvokeCli.mockResolvedValueOnce({
@@ -936,7 +947,7 @@ describe('Hub Server Session Tools', () => {
 
     it('returns error for backend mismatch with an existing session', async () => {
       const startResult = await callTool(server, 'hub-session-start', { backend: 'test' });
-      const { sessionId } = JSON.parse(startResult.content[0].text);
+      const { sessionId } = parseSessionStartJson(startResult.content[0].text);
 
       const result = await callTool(server, 'hub-agent', {
         backend: 'other',
