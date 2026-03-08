@@ -175,6 +175,7 @@ export async function invokeCli(
           durationMs,
           backend: config.name,
           model,
+          runtimeModel: extracted.runtimeModel,
           stderr,
         });
       } else {

@@ -76,7 +76,7 @@ describe('ClaudeAdapter', () => {
       expect(args).toContain('--model');
       expect(args).toContain('claude-sonnet-4-5');
       expect(args).toContain('--output-format');
-      expect(args).toContain('text');
+      expect(args).toContain('json');
       expect(args).not.toContain('Hello, world');
     });
 
