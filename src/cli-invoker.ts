@@ -84,7 +84,9 @@ export async function invokeCli(
   const timeoutMs = input.timeoutMs || config.timeoutMs;
   const adapter = getAdapter(config.argBuilder);
   const parserPlugin = options.plugin;
-  const parser = parserPlugin?.extractResponse ?? adapter.extractResponse;
+  const parser = parserPlugin
+    ? parserPlugin.extractResponse.bind(parserPlugin)
+    : adapter.extractResponse.bind(adapter);
   const env = buildEnv(config);
 
   // Use stdin delivery when adapter supports it to avoid ARG_MAX limits
