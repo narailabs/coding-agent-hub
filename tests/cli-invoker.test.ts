@@ -171,7 +171,7 @@ describe('invokeCli', { timeout: 15_000 }, () => {
         '    process.stderr.write("Error 401 Unauthorized");',
         '    process.exit(1);',
         '  case "auth-apikey":',
-        '    process.stderr.write("Invalid API key provided");',
+        '    process.stderr.write("Error: API key invalid or expired");',
         '    process.exit(1);',
         '  case "stderr-and-stdout":',
         '    process.stderr.write("debug info");',
@@ -254,14 +254,12 @@ describe('invokeCli', { timeout: 15_000 }, () => {
     expect(result.content).toContain('Response content');
   });
 
-  it('reports parse error when exit 0 but output too short for extractor', async () => {
-    // Generic extractor has 10-char minimum
+  it('succeeds with short output (no minimum length requirement)', async () => {
     const result = await invokeCli(cliConfig(), makeInput({ prompt: 'short-output' }));
 
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
     expect(result.exitCode).toBe(0);
-    expect(result.errorType).toBe('parse');
-    expect(result.error).toContain('extract');
+    expect(result.content).toBe('hi');
   });
 
   it('handles timeout with abort', async () => {

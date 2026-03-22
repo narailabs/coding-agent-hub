@@ -522,21 +522,24 @@ export class HubSessionManager {
 
   private trimByChars(session: Session): void {
     let totalChars = session.turns.reduce((sum, t) => sum + t.content.length, 0);
-    const committedCount = () => session.turns.filter((t) => !t.pending).length;
+
+    // Build committed indices once, update incrementally as we remove
+    const committedIndices = session.turns
+      .map((t, i) => (!t.pending ? i : -1))
+      .filter((i) => i !== -1);
 
     // Keep at least the first and last committed turns
-    while (totalChars > this.config.maxContextChars && committedCount() > 2) {
-      // Find the second committed turn (skip the first one to preserve initial context)
-      const committedIndices = session.turns
-        .map((t, i) => (!t.pending ? i : -1))
-        .filter((i) => i !== -1);
-
-      if (committedIndices.length <= 2) break;
-
+    while (totalChars > this.config.maxContextChars && committedIndices.length > 2) {
       // Remove the second committed turn (preserve first)
       const removeIdx = committedIndices[1];
       totalChars -= session.turns[removeIdx].content.length;
       session.turns.splice(removeIdx, 1);
+
+      // Update indices: remove the entry and shift subsequent indices down by 1
+      committedIndices.splice(1, 1);
+      for (let i = 1; i < committedIndices.length; i++) {
+        committedIndices[i]--;
+      }
     }
   }
 

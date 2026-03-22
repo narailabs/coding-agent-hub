@@ -189,7 +189,7 @@ export function createHubServer(
       prompt: z.string().describe('The prompt/question to send to the selected backend'),
       model: z.string().optional().describe('Model override'),
       workingDir: z.string().optional().describe('Working directory for the CLI invocation'),
-      timeoutMs: z.number().optional().describe('Timeout in milliseconds'),
+      timeoutMs: z.number().int().min(1000).max(600000).optional().describe('Timeout in milliseconds (1000–600000)'),
       sessionId: z.string().optional().describe('Session ID for multi-turn conversation continuity'),
     },
   async (args) => {
@@ -418,7 +418,7 @@ export function createHubServer(
     {
       sessionId: z.string().describe('Session ID from hub-session-start'),
       message: z.string().describe('The message to send'),
-      timeoutMs: z.number().optional().describe('Timeout in milliseconds'),
+      timeoutMs: z.number().int().min(1000).max(600000).optional().describe('Timeout in milliseconds (1000–600000)'),
     },
     async (args) => {
       const session = sessionManager.getSession(args.sessionId);
