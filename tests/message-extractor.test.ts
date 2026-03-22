@@ -6,8 +6,10 @@ describe('extractMessageContent', () => {
     expect(extractMessageContent('')).toBeNull();
   });
 
-  it('returns null for very short output', () => {
-    expect(extractMessageContent('hi')).toBeNull();
+  it('accepts very short output', () => {
+    const result = extractMessageContent('hi');
+    expect(result).not.toBeNull();
+    expect(result!.content).toBe('hi');
   });
 
   it('extracts from JSON with response field (Gemini format)', () => {
@@ -53,13 +55,13 @@ describe('extractMessageContent', () => {
     expect(result!.metadata?.exitCode).toBe(0);
   });
 
-  it('ignores JSON with very short content field', () => {
+  it('extracts JSON with short content field', () => {
     const json = JSON.stringify({ content: 'short' });
     const result = extractMessageContent(json);
 
-    // Should fall back to plain text of the whole JSON
     expect(result).not.toBeNull();
-    expect(result!.metadata?.jsonFormat).toBe('plaintext');
+    expect(result!.content).toBe('short');
+    expect(result!.metadata?.jsonFormat).toBe('generic');
   });
 
   it('returns null when session_id JSON is stripped and nothing remains', () => {
@@ -68,8 +70,8 @@ describe('extractMessageContent', () => {
     expect(result).toBeNull();
   });
 
-  it('returns null when cleaned text is under 10 chars after stripping', () => {
-    // This input is >= 10 chars total but after the cleaning regex
+  it('returns null when session_id JSON is stripped and nothing remains (variant)', () => {
+    // This input is non-empty but after the cleaning regex
     // removes session_id JSON, the result is empty
     const input = '  {"session_id": "xyz-456", "data": "val"}  ';
     const result = extractMessageContent(input);

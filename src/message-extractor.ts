@@ -35,7 +35,7 @@ export function extractMessageContent(
 ): ExtractedMessage | null {
   const trimmed = stdout.trim();
 
-  if (!trimmed || trimmed.length < 10) {
+  if (!trimmed) {
     return null;
   }
 
@@ -52,7 +52,7 @@ export function extractMessageContent(
         try {
           const parsed = JSON.parse(jsonStr);
           const content = parsed.response || parsed.content || parsed.result;
-          if (content && typeof content === 'string' && content.length >= 10) {
+          if (content && typeof content === 'string') {
             return {
               content,
               metadata: {
@@ -80,7 +80,7 @@ export function extractMessageContent(
     .replace(/^\s*\{[\s\S]*"session_id"[\s\S]*\}\s*$/g, '')
     .trim();
 
-  if (cleaned && cleaned.length >= 10) {
+  if (cleaned) {
     return {
       content: cleaned,
       metadata: {
