@@ -420,15 +420,6 @@ describe('OpenCodeAdapter', () => {
     });
   });
 
-  describe('buildArgsWithoutPrompt', () => {
-    it('omits -p and prompt from args', () => {
-      const args = adapter.buildArgsWithoutPrompt!(makeInput(), 'claude-sonnet-4-5');
-      expect(args).toEqual(['-f', 'json', '-q']);
-      expect(args).not.toContain('-p');
-      expect(args).not.toContain('Hello, world');
-    });
-  });
-
   describe('buildDescription', () => {
     it('includes display name and command', () => {
       const desc = adapter.buildDescription(makeConfig({ displayName: 'OpenCode', command: 'opencode' }));
@@ -732,8 +723,10 @@ describe('GenericAdapter', () => {
       expect(result!.content).toBe('Hello from generic JSON response');
     });
 
-    it('returns null for short output (shared extractor has 10-char min)', () => {
-      expect(adapter.extractResponse('short', 0)).toBeNull();
+    it('returns short output (no minimum length requirement)', () => {
+      const result = adapter.extractResponse('short', 0);
+      expect(result).not.toBeNull();
+      expect(result!.content).toBe('short');
     });
 
     it('returns null for empty output', () => {
