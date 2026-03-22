@@ -19,14 +19,6 @@ export class OpenCodeAdapter implements BackendAdapter {
     ];
   }
 
-  buildArgsWithoutPrompt(_input: ToolInput, _model: string): string[] {
-    return [
-      '-f',
-      'json',
-      '-q',
-    ];
-  }
-
   extractResponse(stdout: string, exitCode: number | null): ExtractedMessage | null {
     const trimmed = stdout.trim();
     if (!trimmed) return null;

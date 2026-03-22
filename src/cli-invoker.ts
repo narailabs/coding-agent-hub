@@ -11,8 +11,26 @@ import { logger } from './logger.js';
 import type { BackendConfig, ErrorType, ToolInput, ToolResult } from './types.js';
 import type { AgentPlugin, PluginInvocation } from './plugins/types.js';
 
-/** Patterns in stderr that indicate authentication failures. */
-const AUTH_ERROR_PATTERNS = [/401/i, /403/i, /unauthorized/i, /api.?key/i, /authentication/i];
+/** Minimum timeout in milliseconds. */
+const MIN_TIMEOUT_MS = 1_000;
+
+/** Maximum timeout in milliseconds (10 minutes). */
+const MAX_TIMEOUT_MS = 600_000;
+
+/** Default timeout in milliseconds (2 minutes). */
+const DEFAULT_TIMEOUT_MS = 120_000;
+
+/**
+ * Patterns in stderr that indicate authentication failures.
+ * Use word boundaries to avoid false positives on URLs or unrelated numbers.
+ */
+const AUTH_ERROR_PATTERNS = [
+  /\b401\b.*unauthorized/i,
+  /\b403\b.*forbidden/i,
+  /\bunauthorized\b/i,
+  /\bapi[_\s-]?key\b.*(?:missing|invalid|expired)/i,
+  /\bauthentication\s+(?:failed|error|required)\b/i,
+];
 
 /**
  * Environment variables safe to pass to CLI processes.
@@ -81,7 +99,8 @@ export async function invokeCli(
 ): Promise<ToolResult> {
   const startTime = Date.now();
   const model = input.model || config.defaultModel;
-  const timeoutMs = input.timeoutMs || config.timeoutMs;
+  const rawTimeout = input.timeoutMs || config.timeoutMs || DEFAULT_TIMEOUT_MS;
+  const timeoutMs = Math.max(MIN_TIMEOUT_MS, Math.min(MAX_TIMEOUT_MS, rawTimeout));
   const adapter = getAdapter(config.argBuilder);
   const parserPlugin = options.plugin;
   const parser = parserPlugin
@@ -206,11 +225,16 @@ export async function invokeCli(
       }
     });
 
-    // Write prompt to stdin if using stdin delivery, then close
-    if (stdinData) {
-      child.stdin?.write(stdinData);
+    // Write prompt to stdin if using stdin delivery, then close.
+    // Guard against errors if the child exits before stdin is consumed.
+    try {
+      if (stdinData) {
+        child.stdin?.write(stdinData);
+      }
+      child.stdin?.end();
+    } catch {
+      // Child may have already exited; the 'exit' or 'error' handler will resolve.
     }
-    child.stdin?.end();
   });
 
   return invocation.then((result) => (parserPlugin?.classifyError ? parserPlugin.classifyError(result) : result));
